@@ -1,5 +1,7 @@
 # Humble Steam Key Redeemer
 
+If this tool rescued your key library, consider [buying me a coffee ☕](https://ko-fi.com/sparklemuffin)
+
 ## Web App (recommended)
 
 Run `run_app.bat` (or `python app.py`) — a dashboard opens at http://127.0.0.1:5757 with:

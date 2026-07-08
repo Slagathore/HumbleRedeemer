@@ -159,6 +159,9 @@ dialog input {
     <span class="chip" id="chip-humble" onclick="openLogin('humble')"><span class="dot" id="dot-humble"></span>Humble</span>
     <span class="chip" id="chip-steam" onclick="openLogin('steam')"><span class="dot" id="dot-steam"></span>Steam</span>
     <span class="chip" id="chip-gog" onclick="loginGog()" title="Opens a browser window on this PC to sign in"><span class="dot" id="dot-gog"></span>GOG</span>
+    <a class="chip" href="https://ko-fi.com/sparklemuffin" target="_blank"
+       style="text-decoration:none;border-color:var(--warn)"
+       title="If this thing rescued your key library, consider buying me a coffee!">☕ Ko-fi</a>
   </div>
 </header>
 <main>
@@ -202,6 +205,10 @@ dialog input {
       <div class="progress"><div id="progressbar"></div></div>
       <div class="mini" id="jobline">Idle.</div>
       <div id="joblog" style="margin-top:10px"></div>
+      <p class="mini" style="margin:12px 0 0">
+        Enjoying this? If it rescued your key library, consider
+        <a href="https://ko-fi.com/sparklemuffin" target="_blank">buying me a coffee ☕</a>
+      </p>
     </div>
   </div>
 </section>
@@ -364,7 +371,7 @@ const dlg = id => document.getElementById(id);
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const css = v => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
 
-let state = null, games = [], filter = "all", selected = new Set();
+let state = null, games = [], filter = "all", selected = new Set(), lastGogLogin = "idle";
 
 /* ---------------- tabs ---------------- */
 document.querySelectorAll("nav button").forEach(b => b.onclick = () => {
@@ -395,6 +402,11 @@ function render() {
   $("#dot-humble").classList.toggle("on", state.logins.humble);
   $("#dot-steam").classList.toggle("on", state.logins.steam);
   $("#dot-gog").classList.toggle("on", state.logins.gog);
+  const gl = state.logins.gog_login || {};
+  if (gl.status !== lastGogLogin) {
+    if (gl.status === "error") alert("GOG sign-in: " + gl.message);
+    lastGogLogin = gl.status;
+  }
 
   renderTiles(m);
   renderPipeline(m);

@@ -80,7 +80,9 @@ class GogClient:
             if self.login_state["status"] == "waiting":
                 return False, "A GOG sign-in window is already open."
             self.login_state = {"status": "waiting",
-                                "message": "Browser window opened — sign in to GOG there."}
+                                "message": "Browser window opened — sign in to GOG there. "
+                                           "(If the login form didn't pop up, click Sign in "
+                                           "at the top right of the page.)"}
         threading.Thread(target=self._interactive_login, daemon=True).start()
         return True, "opened"
 
@@ -92,13 +94,22 @@ class GogClient:
             opts.add_experimental_option("excludeSwitches", ["enable-logging"])
             driver = webdriver.Chrome(options=opts)
             driver.get(GOG_HOME)
-            # Nudge straight to the login form
+            time.sleep(4)
+            # Use the site's own sign-in flow (a modal) rather than guessing
+            # auth URLs — GOG rejects unregistered client/redirect combos.
             try:
-                driver.get("https://login.gog.com/auth?client_id=46899977096215655"
-                           "&redirect_uri=https%3A%2F%2Fwww.gog.com%2Fon_login_success"
-                           "&response_type=code&layout=default&brand=gog")
+                driver.find_element(
+                    "css selector", "#CybotCookiebotDialogBodyButtonDecline").click()
+                time.sleep(1)
             except Exception:
                 pass
+            try:
+                driver.execute_script(
+                    """const b = document.querySelector(
+                         '[class*="anonymous-header__btn--sign"], a[href*="login"]');
+                       if (b) b.click();""")
+            except Exception:
+                pass  # user can click "Sign in" themselves
             deadline = time.time() + 300  # 5 minutes to sign in
             logged_in = False
             while time.time() < deadline:
