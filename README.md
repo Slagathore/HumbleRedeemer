@@ -1,37 +1,62 @@
-# Humble Steam Key Redeemer
+# Humble Steam Key Redeem...er
 
-If this tool rescued your key library, consider [buying me Half a cup of coffee](https://ko-fi.com/sparklemuffin). Tarriffs amirite. 🥲
+**Rescue your Humble Bundle key backlog.** A free, open-source, 100%-local web app that finds every key you've ever bought, claims your unclaimed Humble Choice games, redeems everything you don't already own on Steam, warns you before keys expire — and rounds up your duplicate keys so you can give them away.
 
-## Web App (recommended)
+[![Latest release](https://img.shields.io/github/v/release/Slagathore/HumbleRedeemer)](../../releases/latest)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+![Platforms](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-blue)
+[![Ko-fi](https://img.shields.io/badge/Ko--fi-half%20a%20coffee%20%E2%98%95-ff5f5f)](https://ko-fi.com/sparklemuffin)
 
-Grab a packaged build from [Releases](../../releases) (Windows/macOS/Linux — unzip and run, no Python needed), or run from source with `run_app.bat` / `python app.py`. A dashboard opens at http://127.0.0.1:5757.
+![Demo](docs/demo.gif)
 
-Use whatever browser you like for the dashboard — Chrome, Firefox, Opera GX, anything. The Humble/GOG automation runs in a separate hidden browser, which uses Chrome or Firefox; if neither is installed, Selenium usually downloads a private copy of Chrome automatically.
+## Quick start
 
-Features:
+1. Download the [latest release](../../releases/latest) for your OS (Windows `.exe`, macOS zip, Linux tar.gz) — no install, no Python needed.
+2. Run it — the dashboard opens at `http://127.0.0.1:5757` in whatever browser you use (Chrome, Firefox, Opera GX, anything).
+3. Sign in to Humble and Steam from the header chips (2FA/Steam Guard supported), then hit **▶ Full auto run**.
+
+The Humble/GOG automation runs in a separate hidden browser using Chrome or Firefox; if neither is installed, Selenium usually downloads a private copy of Chrome automatically. macOS builds are unsigned — right-click → Open the first time.
+
+## What it does
 
 - **Metrics dashboard** — key pipeline, per-service breakdown, redemption activity over time
-- **Library browser** — search/filter every Humble key, see its reveal/match/redeem state
-- **One-click actions** — Sync Humble, Sync Steam, Match ownership, Reveal, Redeem, or a Full Auto run
-- **3-tier ownership matching** — Steam AppID, normalized exact name (handles ™/®, case, punctuation), then conservative fuzzy matching whose "likely owned" hits you confirm in the UI instead of a skipped.txt file
-- **Reveal support** — unrevealed keys are revealed on Humble automatically during redemption (toggle in Settings)
-- **Settings page** — Steam Web API key/SteamID64, match threshold, delays, rate-limit wait
-- **SQLite state** (`redeemer.db`) — imports all history from the old CSVs on first run; "Reset all errored" puts keys the old pipeline gave up on back into the queue
-- **Humble Choice auto-claim** — walks every Choice/Monthly month you've ever had and claims every unclaimed game (runs automatically as the first step of Full Auto)
-- **Steam license verification** — cross-references Steam's account licenses page ("Activated as CD Key") against your redeemed keys, so each redeemed key gets a verified-in-Steam badge
-- **Giveaway page** — spare keys for games you already own (never-consumed keys, including ones Steam refused with "already owned"), with click-to-copy, email drafts, Reddit-post and names-only exports, key expiration dates, gift-link creation for unrevealed spares, given-away tracking, and a slow-burn job that resolves ambiguous "verify first" spares against Steam
-- **Attention page** — everything that can't be auto-redeemed: other-store keys with where-to-redeem links, dead/exhausted keys with the Steam error decoded, expired keys, gift links, and the not-actually-a-game oddities (trials, coupons, playtests)
-- **GOG integration** — sign in via a browser window on your PC, library sync with ownership skip, and browser-driven redemption at gog.com/redeem (GOG sometimes interjects a captcha; those keys stay listed for manual entry)
+- **Full auto mode** — claim Choice games → sync Humble → sync Steam → match ownership → reveal & redeem every unowned key → verify licenses, riding out Steam's rate limits with a countdown
+- **3-tier ownership matching** — Steam AppID, normalized names (™/®/case/punctuation), then a conservative fuzzy pass whose "likely owned" hits you confirm with one click
+- **Humble Choice auto-claim** — walks every Choice/Monthly month you've ever had and claims everything unclaimed
+- **Expiration tracking** — keys with Humble deadlines are flagged before they die
+- **Steam license verification** — confirms your redeemed keys actually landed on your account
+- **Giveaway page** — finds your *duplicates* (keys for games you already own that were never consumed): click-to-copy, email drafts, Reddit-post generator, names-only list for DM giveaways, Humble gift-link creation, and given-away tracking
+- **Attention page** — everything that can't auto-redeem: other-store keys with where-to-redeem links, dead keys with the Steam error decoded, expired keys, and the weird non-game stuff
+- **GOG support** — library sync, ownership skip, and browser-driven redemption
+- **Library browser** — search and filter all your keys by state, with bulk reveal/redeem/reset
 
-Sign in to Humble, Steam, and GOG from the header chips (2FA/Steam Guard supported, including approve-in-app). Sessions persist in `.humblecookies` / `.steamcookies` / `.gogcookies` and are restored automatically on every launch — you only sign in again when a service expires the session.
+<details>
+<summary><b>📸 More screenshots</b></summary>
+
+**Dashboard (dark)**
+![Dashboard dark](docs/dashboard-dark.png)
+
+**Dashboard (light)**
+![Dashboard light](docs/dashboard-light.png)
+
+**Library**
+![Library](docs/library-dark.png)
+
+**Giveaway page**
+![Giveaway](docs/giveaway-dark.png)
+
+**Attention page**
+![Attention](docs/attention-dark.png)
+
+</details>
+
+## Privacy
+
+**Everything is 100% local.** No server, no accounts, no telemetry, no data collection. Your logins are stored as session cookies in local files (`.humblecookies`, `.steamcookies`, `.gogcookies`), and your keys/history live in a local SQLite database (`redeemer.db`) next to the app. The only network connections it ever makes are to Humble Bundle, Steam, and GOG — acting as you, on your machine, for you. Delete the cookie files to sign out; delete `redeemer.db` to wipe all history.
 
 ## Disclaimer
 
 This is an **unofficial** tool, not affiliated with or endorsed by Humble Bundle, Valve/Steam, or GOG. It automates actions on your own accounts (fetching your library, revealing and activating your keys); automated account access may conflict with those services' terms of service. Use at your own risk — the software is provided **as is**, with no warranty of any kind, and you are solely responsible for your accounts and keys. Originally inspired by [FailSpy's humble-steam-key-redeemer](https://github.com/FailSpy/humble-steam-key-redeemer), since fully rewritten.
-
-## Privacy
-
-**Everything is 100% local.** This app has no server, no accounts, no telemetry, and collects no data. Your logins are stored as session cookies in local files (`.humblecookies`, `.steamcookies`, `.gogcookies`), and your keys/history live in a local SQLite database (`redeemer.db`) next to the app. The only network connections it ever makes are to Humble Bundle, Steam, and GOG — acting as you, on your machine, for you. Delete the cookie files to sign out; delete `redeemer.db` to wipe all history.
 
 ## Running from source
 
@@ -43,3 +68,7 @@ python app.py
 ```
 
 Optional: `pip install python-Levenshtein` makes the fuzzy matching faster.
+
+## Support
+
+If this tool rescued your key library, consider [buying me Half a cup of coffee](https://ko-fi.com/sparklemuffin). Tarriffs amirite. 🥲
