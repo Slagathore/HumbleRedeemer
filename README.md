@@ -4,7 +4,7 @@ If this tool rescued your key library, consider [buying me Half a cup of coffee]
 
 ## Web App (recommended)
 
-Run `run_app.bat` (or `python app.py`) — a dashboard opens at http://127.0.0.1:5757 with:
+Grab a packaged build from [Releases](../../releases) (Windows/macOS/Linux — unzip and run, no Python needed; Chrome or Firefox must be installed), or run from source with `run_app.bat` / `python app.py`. A dashboard opens at http://127.0.0.1:5757 with:
 
 - **Metrics dashboard** — key pipeline, per-service breakdown, redemption activity over time
 - **Library browser** — search/filter every Humble key, see its reveal/match/redeem state
@@ -18,6 +18,10 @@ Run `run_app.bat` (or `python app.py`) — a dashboard opens at http://127.0.0.1
 - **Giveaway page** — spare keys for games you already own (never-consumed keys, including ones Steam refused with "already owned"), with copy/export, per-key gift-link creation for unrevealed spares, and given-away tracking
 
 Sign in to Humble and Steam from the header chips (2FA/Steam Guard supported, including approve-in-app). Sessions persist in `.humblecookies` / `.steamcookies` and are restored automatically on every launch — you only sign in again when a service expires the session.
+
+## Disclaimer
+
+This is an **unofficial** tool, not affiliated with or endorsed by Humble Bundle, Valve/Steam, or GOG. It automates actions on your own accounts (fetching your library, revealing and activating your keys); automated account access may conflict with those services' terms of service. Use at your own risk — the software is provided **as is**, with no warranty of any kind, and you are solely responsible for your accounts and keys. Based on [FailSpy's humble-steam-key-redeemer](https://github.com/FailSpy/humble-steam-key-redeemer).
 
 ## Privacy
 

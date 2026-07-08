@@ -28,7 +28,7 @@ from redeemer.jobs import JobRunner
 from redeemer import attention
 
 HOST = "127.0.0.1"
-PORT = 5757
+PORT = int(os.environ.get("APP_PORT", "5757"))
 
 
 def _code_version():

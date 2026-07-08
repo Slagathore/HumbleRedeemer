@@ -1,0 +1,68 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            sep: ";"
+            artifact: HumbleRedeemer-windows
+            binary: HumbleRedeemer.exe
+          - os: macos-latest
+            sep: ":"
+            artifact: HumbleRedeemer-macos
+            binary: HumbleRedeemer
+          - os: ubuntu-latest
+            sep: ":"
+            artifact: HumbleRedeemer-linux
+            binary: HumbleRedeemer
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt pyinstaller
+
+      - name: Build
+        run: >
+          pyinstaller --noconfirm --onefile --name HumbleRedeemer --console
+          --add-data "static${{ matrix.sep }}static"
+          --collect-all selenium --collect-submodules steam
+          --hidden-import fuzzywuzzy app.py
+
+      - name: Package zip
+        shell: bash
+        run: |
+          mkdir pkg
+          cp "dist/${{ matrix.binary }}" pkg/
+          cp README.md pkg/
+          cd pkg
+          python -m zipfile -c "../${{ matrix.artifact }}.zip" .
+
+      - name: Attach to release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ matrix.artifact }}.zip
+          body: |
+            **Humble Steam Key Redeem...er** — unzip, run the binary, and the
+            dashboard opens at http://127.0.0.1:5757. Requires Chrome or
+            Firefox installed (used headlessly for Humble/GOG).
+
+            Everything is 100% local and private — see the README's Privacy
+            and Disclaimer sections.
+
+            macOS note: the binary is unsigned; right-click → Open the first
+            time to get past Gatekeeper.
