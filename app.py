@@ -4,11 +4,21 @@ Run:  python app.py   (then open http://127.0.0.1:5757)
 """
 import glob
 import os
+import sys
 import threading
 import time
 import webbrowser
 
 from flask import Flask, jsonify, request, send_from_directory
+
+# PyInstaller bundle support: static assets live in the unpack dir, while the
+# database/cookies should live next to the .exe so the app stays portable.
+FROZEN = getattr(sys, "frozen", False)
+if FROZEN:
+    os.chdir(os.path.dirname(sys.executable))
+    STATIC_DIR = os.path.join(getattr(sys, "_MEIPASS", "."), "static")
+else:
+    STATIC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
 
 from redeemer.store import Store
 from redeemer.humble_client import HumbleClient
@@ -24,6 +34,9 @@ PORT = 5757
 def _code_version():
     """Newest mtime across the source files — shown in the UI so a stale
     running process (old code in memory) is immediately visible."""
+    if FROZEN:
+        return "build " + time.strftime(
+            "%Y-%m-%d %H:%M", time.localtime(os.path.getmtime(sys.executable)))
     files = ["app.py", "static/index.html"] + glob.glob("redeemer/*.py")
     stamps = [os.path.getmtime(f) for f in files if os.path.exists(f)]
     if not stamps:
@@ -33,7 +46,7 @@ def _code_version():
 
 APP_VERSION = _code_version()
 
-app = Flask(__name__, static_folder="static")
+app = Flask(__name__, static_folder=STATIC_DIR)
 store = Store()
 humble = HumbleClient()
 steam = SteamClient()
@@ -85,7 +98,7 @@ threading.Thread(target=_restore_sessions, daemon=True).start()
 
 @app.get("/")
 def index():
-    return send_from_directory("static", "index.html")
+    return send_from_directory(STATIC_DIR, "index.html")
 
 
 @app.get("/api/state")
@@ -271,6 +284,7 @@ def api_keys_reset():
 
 
 if __name__ == "__main__":
-    print(f"Humble Steam Key Redeemer — open http://{HOST}:{PORT}")
-    threading.Timer(1.0, lambda: webbrowser.open(f"http://{HOST}:{PORT}")).start()
+    print(f"Humble Steam Key Redeem...er — open http://{HOST}:{PORT}")
+    if not os.environ.get("APP_NO_BROWSER"):
+        threading.Timer(1.0, lambda: webbrowser.open(f"http://{HOST}:{PORT}")).start()
     app.run(host=HOST, port=PORT, debug=False, threaded=True)

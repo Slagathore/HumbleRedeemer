@@ -19,6 +19,10 @@ Run `run_app.bat` (or `python app.py`) — a dashboard opens at http://127.0.0.1
 
 Sign in to Humble and Steam from the header chips (2FA/Steam Guard supported, including approve-in-app). Sessions persist in `.humblecookies` / `.steamcookies` and are restored automatically on every launch — you only sign in again when a service expires the session.
 
+## Privacy
+
+**Everything is 100% local.** This app has no server, no accounts, no telemetry, and collects no data. Your logins are stored as session cookies in local files (`.humblecookies`, `.steamcookies`, `.gogcookies`), and your keys/history live in a local SQLite database (`redeemer.db`) next to the app. The only network connections it ever makes are to Humble Bundle, Steam, and GOG — acting as you, on your machine, for you. Delete the cookie files to sign out; delete `redeemer.db` to wipe all history.
+
 ## Original CLI script
 
 Python utility script to extract Humble keys, and redeem them on Steam automagically by detecting when a game is already owned on Steam.

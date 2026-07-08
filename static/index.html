@@ -147,7 +147,7 @@ dialog input {
 </head>
 <body>
 <header>
-  <h1>Humble Steam Key Redeemer <span class="mini" id="ver" title="code version the running app loaded — if this is older than your latest change, restart the app"></span></h1>
+  <h1>Humble Steam Key Redeem...er <span class="mini" id="ver" title="code version the running app loaded — if this is older than your latest change, restart the app"></span></h1>
   <nav>
     <button data-tab="dashboard" class="active">Dashboard</button>
     <button data-tab="library">Library</button>
@@ -184,6 +184,10 @@ dialog input {
     <a href="https://ko-fi.com/sparklemuffin" target="_blank"
        style="color:var(--accent); font-weight:650">buying me Half a cup of coffee</a>.
     Tarriffs amirite. 🥲
+    <div class="mini" style="margin-top:6px">
+      🔒 100% local &amp; private — this app talks only to Humble, Steam, and GOG on your behalf.
+      Your logins, keys, and history never leave this machine. No telemetry, no data collection, no server.
+    </div>
   </div>
 
   <div class="grid row2" style="margin-top:14px">
@@ -194,17 +198,28 @@ dialog input {
     <div class="card">
       <h3>Actions</h3>
       <div class="actions">
-        <button class="btn primary" onclick="startJob('full_auto')">▶ Full auto run</button>
-        <button class="btn" onclick="startJob('sync_humble')">Sync Humble</button>
-        <button class="btn" onclick="startJob('sync_steam')">Sync Steam</button>
-        <button class="btn" onclick="startJob('match')">Match ownership</button>
-        <button class="btn" onclick="startJob('reveal')">Reveal candidates</button>
-        <button class="btn" onclick="revealAll()">Reveal ALL keys</button>
-        <button class="btn" onclick="startJob('redeem')">Redeem candidates</button>
-        <button class="btn" onclick="startJob('claim_choices')">Claim Choice games</button>
-        <button class="btn" onclick="startJob('verify_licenses')">Verify Steam licenses</button>
-        <button class="btn" onclick="startJob('redeem_gog')">Redeem GOG keys</button>
-        <button class="btn danger" id="btn-cancel" onclick="cancelJob()" disabled>Cancel</button>
+        <button class="btn primary" onclick="startJob('full_auto')"
+          title="The whole pipeline in one click: claim Choice games → sync Humble → sync Steam → match ownership → reveal & redeem every unowned Steam key → verify licenses (→ redeem GOG keys if signed in). Safe to leave running; it waits out Steam's rate limits.">▶ Full auto run</button>
+        <button class="btn" onclick="startJob('sync_humble')"
+          title="Re-fetch your entire Humble library: new bundles, keys, Choice games, and expiration dates.">Sync Humble</button>
+        <button class="btn" onclick="startJob('sync_steam')"
+          title="Refresh the list of games your Steam account owns (via the Steam Web API key in Settings).">Sync Steam</button>
+        <button class="btn" onclick="startJob('match')"
+          title="Compare every Humble key against your Steam library — exact AppID match, then normalized names, then a conservative fuzzy pass whose 'likely owned' hits you confirm in the Library tab.">Match ownership</button>
+        <button class="btn" onclick="startJob('reveal')"
+          title="Reveal keys on Humble — but only for Steam games you DON'T own. Owned/unmatched keys stay hidden so they can still become gift links.">Reveal candidates</button>
+        <button class="btn" onclick="revealAll()"
+          title="Reveal every unrevealed key across ALL stores so you can copy and share them. Permanently gives up the Humble gift-link option for those keys (asks for confirmation).">Reveal ALL keys</button>
+        <button class="btn" onclick="startJob('redeem')"
+          title="Activate every unowned, unprocessed Steam key on your account. Auto-reveals hidden keys as it goes and rides out Steam's ~50/hour activation limit with a countdown.">Redeem candidates</button>
+        <button class="btn" onclick="startJob('claim_choices')"
+          title="Walk every Humble Choice/Monthly month you've ever had and claim every unclaimed game, then pull the new keys into the app.">Claim Choice games</button>
+        <button class="btn" onclick="startJob('verify_licenses')"
+          title="Read your Steam account's licenses page and confirm which redeemed keys actually landed as key activations — redeemed entries get a ✓lic badge.">Verify Steam licenses</button>
+        <button class="btn" onclick="startJob('redeem_gog')"
+          title="Sync your GOG library, then redeem your GOG keys at gog.com/redeem, skipping ones you already own there. (GOG sometimes blocks this with a captcha — those stay pending for manual entry.)">Redeem GOG keys</button>
+        <button class="btn danger" id="btn-cancel" onclick="cancelJob()" disabled
+          title="Stop the current job after the key it's working on. Progress already made is saved.">Cancel</button>
       </div>
       <div class="progress"><div id="progressbar"></div></div>
       <div class="mini" id="jobline">Idle.</div>
@@ -321,6 +336,16 @@ dialog input {
       <div><button class="btn primary" type="submit">Save settings</button>
         <span class="msg" id="settings-msg"></span></div>
     </form>
+  </div>
+  <div class="card" style="max-width:640px; margin-top:14px">
+    <h3>Privacy</h3>
+    <p class="section-note" style="margin-bottom:0">
+      Everything runs and stays on your machine. Your logins are kept as session cookies in
+      local files (<code>.humblecookies</code>, <code>.steamcookies</code>, <code>.gogcookies</code>),
+      your keys and history live in a local database (<code>redeemer.db</code>), and the only
+      servers this app ever contacts are Humble Bundle, Steam, and GOG — acting as you, for you.
+      No telemetry, no analytics, no accounts, no data collection of any kind.
+    </p>
   </div>
   <div class="card" style="max-width:640px; margin-top:14px">
     <h3>Accounts</h3>
