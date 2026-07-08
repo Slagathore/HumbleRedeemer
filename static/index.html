@@ -1,0 +1,874 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Humble Steam Key Redeemer</title>
+<style>
+:root {
+  --surface-1: #fcfcfb;
+  --page: #f9f9f7;
+  --ink-1: #0b0b0b;
+  --ink-2: #52514e;
+  --ink-muted: #898781;
+  --grid: #e1e0d9;
+  --baseline: #c3c2b7;
+  --border: rgba(11,11,11,0.10);
+  --accent: #2a78d6;
+  --good: #0ca30c;
+  --good-text: #006300;
+  --warn: #eda100;
+  --critical: #d03b3b;
+  --neutral-seg: #c3c2b7;
+  --btn-bg: #ffffff;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --surface-1: #1a1a19;
+    --page: #0d0d0d;
+    --ink-1: #ffffff;
+    --ink-2: #c3c2b7;
+    --ink-muted: #898781;
+    --grid: #2c2c2a;
+    --baseline: #383835;
+    --border: rgba(255,255,255,0.10);
+    --accent: #3987e5;
+    --good: #0ca30c;
+    --good-text: #0ca30c;
+    --warn: #c98500;
+    --critical: #d03b3b;
+    --neutral-seg: #52514e;
+    --btn-bg: #242423;
+  }
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; background: var(--page); color: var(--ink-1);
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  font-size: 14px;
+}
+header {
+  display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
+  padding: 12px 20px; background: var(--surface-1);
+  border-bottom: 1px solid var(--border);
+  position: sticky; top: 0; z-index: 5;
+}
+header h1 { font-size: 16px; margin: 0 12px 0 0; font-weight: 650; }
+nav button {
+  background: none; border: none; color: var(--ink-2); font: inherit;
+  padding: 8px 10px; cursor: pointer; border-radius: 6px;
+}
+nav button.active { color: var(--ink-1); font-weight: 650; background: var(--page); }
+.chips { margin-left: auto; display: flex; gap: 8px; }
+.chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 4px 10px; border: 1px solid var(--border); border-radius: 999px;
+  color: var(--ink-2); font-size: 12.5px; background: var(--btn-bg); cursor: pointer;
+}
+.dot { width: 8px; height: 8px; border-radius: 50%; background: var(--critical); }
+.dot.on { background: var(--good); }
+main { max-width: 1200px; margin: 0 auto; padding: 20px; }
+.grid { display: grid; gap: 14px; }
+.tiles { grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); }
+.card {
+  background: var(--surface-1); border: 1px solid var(--border);
+  border-radius: 10px; padding: 14px 16px;
+}
+.card h3 { margin: 0 0 10px; font-size: 13px; font-weight: 650; color: var(--ink-2); }
+.tile .v { font-size: 34px; font-weight: 700; line-height: 1.1; }
+.tile .l { color: var(--ink-2); font-size: 12.5px; margin-top: 2px; }
+.tile .s { color: var(--ink-muted); font-size: 12px; margin-top: 4px; }
+.row2 { grid-template-columns: 1.4fr 1fr; }
+@media (max-width: 900px) { .row2 { grid-template-columns: 1fr; } }
+.actions { display: flex; flex-wrap: wrap; gap: 8px; }
+button.btn {
+  font: inherit; padding: 8px 14px; border-radius: 8px; cursor: pointer;
+  border: 1px solid var(--border); background: var(--btn-bg); color: var(--ink-1);
+}
+button.btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+button.btn.danger { color: var(--critical); }
+button.btn:disabled { opacity: .45; cursor: default; }
+.progress { height: 6px; background: var(--grid); border-radius: 3px; overflow: hidden; margin: 10px 0 6px; }
+.progress > div { height: 100%; background: var(--accent); width: 0%; transition: width .4s; }
+#joblog {
+  font-family: Consolas, monospace; font-size: 12px; color: var(--ink-2);
+  background: var(--page); border: 1px solid var(--border); border-radius: 8px;
+  padding: 10px; height: 180px; overflow-y: auto; white-space: pre-wrap;
+}
+.legend { display: flex; flex-wrap: wrap; gap: 14px; margin-top: 10px; font-size: 12.5px; color: var(--ink-2); }
+.legend .sw { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 6px; vertical-align: -1px; }
+svg text { font-family: inherit; }
+#tooltip {
+  position: fixed; pointer-events: none; display: none; z-index: 50;
+  background: var(--surface-1); color: var(--ink-1);
+  border: 1px solid var(--border); border-radius: 8px;
+  padding: 6px 10px; font-size: 12.5px; box-shadow: 0 4px 14px rgba(0,0,0,.18);
+}
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+th, td { text-align: left; padding: 7px 10px; border-bottom: 1px solid var(--grid); }
+th { color: var(--ink-muted); font-weight: 600; font-size: 12px; position: sticky; top: 0; background: var(--surface-1); }
+tbody tr:hover { background: var(--page); }
+.tag { padding: 2px 8px; border-radius: 999px; font-size: 11.5px; border: 1px solid var(--border); color: var(--ink-2); white-space: nowrap; }
+.tag.good { color: var(--good-text); border-color: var(--good); }
+.tag.bad { color: var(--critical); border-color: var(--critical); }
+.tag.warn { color: var(--warn); border-color: var(--warn); }
+.tag.info { color: var(--accent); border-color: var(--accent); }
+.filters { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; align-items: center; }
+.filters input[type=search] {
+  font: inherit; padding: 8px 12px; border-radius: 8px; flex: 1; min-width: 200px;
+  border: 1px solid var(--border); background: var(--btn-bg); color: var(--ink-1);
+}
+.fchip { cursor: pointer; }
+.fchip.active { border-color: var(--accent); color: var(--accent); font-weight: 600; }
+.tablewrap { max-height: 65vh; overflow: auto; border: 1px solid var(--border); border-radius: 10px; background: var(--surface-1); }
+.mini { font-size: 11.5px; color: var(--ink-muted); }
+form.settings { display: grid; gap: 12px; max-width: 560px; }
+form.settings label { display: grid; gap: 4px; font-size: 12.5px; color: var(--ink-2); }
+form.settings input[type=text], form.settings input[type=password], form.settings input[type=number] {
+  font: inherit; padding: 8px 12px; border-radius: 8px;
+  border: 1px solid var(--border); background: var(--btn-bg); color: var(--ink-1);
+}
+.check { display: flex; gap: 8px; align-items: center; font-size: 13.5px; color: var(--ink-1); }
+dialog {
+  border: 1px solid var(--border); border-radius: 12px; background: var(--surface-1);
+  color: var(--ink-1); padding: 20px; max-width: 380px; width: 90%;
+}
+dialog::backdrop { background: rgba(0,0,0,.45); }
+dialog h3 { margin-top: 0; }
+dialog form { display: grid; gap: 10px; }
+dialog input {
+  font: inherit; padding: 9px 12px; border-radius: 8px;
+  border: 1px solid var(--border); background: var(--btn-bg); color: var(--ink-1);
+}
+.msg { font-size: 12.5px; color: var(--ink-2); min-height: 16px; }
+.msg.err { color: var(--critical); }
+.section-note { color: var(--ink-muted); font-size: 12.5px; margin: 4px 0 14px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Humble Steam Key Redeemer</h1>
+  <nav>
+    <button data-tab="dashboard" class="active">Dashboard</button>
+    <button data-tab="library">Library</button>
+    <button data-tab="giveaway">Giveaway</button>
+    <button data-tab="settings">Settings</button>
+  </nav>
+  <div class="chips">
+    <span class="chip" id="chip-humble" onclick="openLogin('humble')"><span class="dot" id="dot-humble"></span>Humble</span>
+    <span class="chip" id="chip-steam" onclick="openLogin('steam')"><span class="dot" id="dot-steam"></span>Steam</span>
+  </div>
+</header>
+<main>
+
+<!-- ======================= DASHBOARD ======================= -->
+<section id="tab-dashboard">
+  <div class="grid tiles" id="tiles"></div>
+
+  <div class="grid row2" style="margin-top:14px">
+    <div class="card">
+      <h3>Key pipeline</h3>
+      <div id="pipeline"></div>
+      <div class="legend" id="pipeline-legend"></div>
+    </div>
+    <div class="card">
+      <h3>Keys by service</h3>
+      <div id="services"></div>
+    </div>
+  </div>
+
+  <div class="grid row2" style="margin-top:14px">
+    <div class="card">
+      <h3>Redemption activity</h3>
+      <div id="activity"></div>
+    </div>
+    <div class="card">
+      <h3>Actions</h3>
+      <div class="actions">
+        <button class="btn primary" onclick="startJob('full_auto')">▶ Full auto run</button>
+        <button class="btn" onclick="startJob('sync_humble')">Sync Humble</button>
+        <button class="btn" onclick="startJob('sync_steam')">Sync Steam</button>
+        <button class="btn" onclick="startJob('match')">Match ownership</button>
+        <button class="btn" onclick="startJob('reveal')">Reveal candidates</button>
+        <button class="btn" onclick="revealAll()">Reveal ALL keys</button>
+        <button class="btn" onclick="startJob('redeem')">Redeem candidates</button>
+        <button class="btn" onclick="startJob('claim_choices')">Claim Choice games</button>
+        <button class="btn" onclick="startJob('verify_licenses')">Verify Steam licenses</button>
+        <button class="btn danger" id="btn-cancel" onclick="cancelJob()" disabled>Cancel</button>
+      </div>
+      <div class="progress"><div id="progressbar"></div></div>
+      <div class="mini" id="jobline">Idle.</div>
+      <div id="joblog" style="margin-top:10px"></div>
+    </div>
+  </div>
+</section>
+
+<!-- ======================= LIBRARY ======================= -->
+<section id="tab-library" style="display:none">
+  <div class="filters">
+    <input type="search" id="search" placeholder="Search titles…">
+    <span class="chip fchip active" data-f="all">All</span>
+    <span class="chip fchip" data-f="candidates">Ready to redeem</span>
+    <span class="chip fchip" data-f="review">Needs review</span>
+    <span class="chip fchip" data-f="unrevealed">Unrevealed</span>
+    <span class="chip fchip" data-f="redeemed">Redeemed</span>
+    <span class="chip fchip" data-f="unverified" title="redeemed here but no matching key-activated license on your Steam account">Unverified</span>
+    <span class="chip fchip" data-f="owned">Owned</span>
+    <span class="chip fchip" data-f="errored">Errored</span>
+    <span class="chip fchip" data-f="nonsteam">Non-Steam</span>
+  </div>
+  <div class="actions" style="margin-bottom:10px">
+    <button class="btn" onclick="bulk('reveal')">Reveal selected</button>
+    <button class="btn primary" onclick="bulk('redeem')">Redeem selected</button>
+    <button class="btn" onclick="resetSelected()">Reset status of selected</button>
+    <button class="btn" onclick="resetErrored()">Reset all errored</button>
+    <span class="mini" id="selcount"></span>
+  </div>
+  <div class="tablewrap">
+    <table id="gametable">
+      <thead><tr>
+        <th><input type="checkbox" id="checkall"></th>
+        <th>Title</th><th>Service</th><th>Revealed</th>
+        <th>Steam match</th><th>Status</th><th>Key</th><th></th>
+      </tr></thead>
+      <tbody></tbody>
+    </table>
+  </div>
+  <p class="mini" id="tablecount"></p>
+</section>
+
+<!-- ======================= GIVEAWAY ======================= -->
+<section id="tab-giveaway" style="display:none">
+  <div class="card" style="margin-bottom:12px">
+    <h3>Spare keys you can give away</h3>
+    <p class="section-note" style="margin-bottom:0">
+      Steam keys for games you already own where the key itself was never used.
+      Keys refused with Steam's "already owned" error are still valid for other people.
+      For unrevealed spares, <b>Make gift link</b> creates a Humble gift link — the nicest way to hand one out.
+      Entries marked <span class="tag warn">verify first</span> came from old runs where we can't tell
+      "you already owned it" apart from "someone else used this key" — test those before promising them.
+    </p>
+  </div>
+  <div class="filters">
+    <input type="search" id="gsearch" placeholder="Search spares…">
+    <label class="check" style="font-size:12.5px"><input type="checkbox" id="gshowgiven"> show given-away</label>
+  </div>
+  <div class="actions" style="margin-bottom:10px">
+    <button class="btn" onclick="copyAllSpares()">Copy all as text</button>
+    <button class="btn" onclick="copyRedditTable()">Copy as Reddit post</button>
+    <button class="btn" onclick="copyNamesList()">Copy names only</button>
+    <button class="btn" onclick="exportNames()">Export names CSV</button>
+    <button class="btn" onclick="emailSpares()">Email selected</button>
+    <button class="btn" onclick="exportSpares()">Export CSV</button>
+    <button class="btn primary" onclick="giveSelected(true)">Mark selected as given</button>
+    <button class="btn" onclick="giveSelected(false)">Un-mark selected</button>
+    <span class="mini" id="gselcount"></span>
+  </div>
+  <div class="tablewrap">
+    <table id="givetable">
+      <thead><tr>
+        <th><input type="checkbox" id="gcheckall"></th>
+        <th>Title</th><th>Key / gift link</th><th>Expires</th><th>Why it's spare</th><th>Given</th><th></th>
+      </tr></thead>
+      <tbody></tbody>
+    </table>
+  </div>
+  <p class="mini" id="givecount"></p>
+</section>
+
+<!-- ======================= SETTINGS ======================= -->
+<section id="tab-settings" style="display:none">
+  <div class="card" style="max-width:640px">
+    <h3>Settings</h3>
+    <p class="section-note">Steam Web API key (<a href="https://steamcommunity.com/dev/apikey" target="_blank">get one here</a>) + your SteamID64 give the most reliable library sync.</p>
+    <form class="settings" onsubmit="saveSettings(event)">
+      <label>Steam Web API key <input type="text" id="s-apikey"></label>
+      <label>SteamID64 <input type="text" id="s-steamid"></label>
+      <label>Fuzzy match threshold (85–97, higher = stricter)
+        <input type="number" id="s-threshold" min="70" max="100"></label>
+      <label>Delay between keys (seconds)
+        <input type="number" id="s-delay" min="0" step="0.5"></label>
+      <label>Rate-limit wait (minutes)
+        <input type="number" id="s-ratewait" min="1"></label>
+      <label class="check"><input type="checkbox" id="s-autoreveal">
+        Auto-reveal unrevealed keys when redeeming (removes gift-link option for those keys)</label>
+      <label class="check"><input type="checkbox" id="s-likely">
+        Also redeem “likely owned” matches without review (not recommended)</label>
+      <div><button class="btn primary" type="submit">Save settings</button>
+        <span class="msg" id="settings-msg"></span></div>
+    </form>
+  </div>
+  <div class="card" style="max-width:640px; margin-top:14px">
+    <h3>Accounts</h3>
+    <p class="section-note">Sessions are cached in <code>.humblecookies</code> / <code>.steamcookies</code> — delete a file to fully sign that account out.</p>
+    <div class="actions">
+      <button class="btn" onclick="openLogin('humble')">Sign in to Humble…</button>
+      <button class="btn" onclick="openLogin('steam')">Sign in to Steam…</button>
+    </div>
+  </div>
+</section>
+</main>
+
+<!-- ======================= LOGIN DIALOGS ======================= -->
+<dialog id="dlg-humble">
+  <h3>Sign in to Humble Bundle</h3>
+  <form onsubmit="loginHumble(event)">
+    <input type="email" id="h-email" placeholder="Email" autocomplete="username">
+    <input type="password" id="h-pass" placeholder="Password" autocomplete="current-password">
+    <input type="text" id="h-guard" placeholder="Email security code" style="display:none">
+    <input type="text" id="h-code" placeholder="2FA code" style="display:none">
+    <div class="msg" id="h-msg"></div>
+    <div class="actions">
+      <button class="btn primary" type="submit">Sign in</button>
+      <button class="btn" type="button" onclick="dlg('dlg-humble').close()">Close</button>
+    </div>
+  </form>
+</dialog>
+<dialog id="dlg-steam">
+  <h3>Sign in to Steam</h3>
+  <form onsubmit="loginSteam(event)">
+    <input type="text" id="st-user" placeholder="Steam username" autocomplete="username">
+    <input type="password" id="st-pass" placeholder="Password" autocomplete="current-password">
+    <input type="text" id="st-code" placeholder="Steam Guard code" style="display:none">
+    <div class="msg" id="st-msg"></div>
+    <div class="actions">
+      <button class="btn primary" type="submit">Sign in</button>
+      <button class="btn" type="button" onclick="dlg('dlg-steam').close()">Close</button>
+    </div>
+  </form>
+</dialog>
+
+<div id="tooltip"></div>
+
+<script>
+"use strict";
+const $ = s => document.querySelector(s);
+const dlg = id => document.getElementById(id);
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const css = v => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+
+let state = null, games = [], filter = "all", selected = new Set();
+
+/* ---------------- tabs ---------------- */
+document.querySelectorAll("nav button").forEach(b => b.onclick = () => {
+  document.querySelectorAll("nav button").forEach(x => x.classList.toggle("active", x === b));
+  ["dashboard","library","giveaway","settings"].forEach(t =>
+    $("#tab-" + t).style.display = (t === b.dataset.tab ? "" : "none"));
+  if (b.dataset.tab === "library") loadGames();
+  if (b.dataset.tab === "giveaway") loadSpares();
+  if (b.dataset.tab === "settings") fillSettings();
+});
+
+/* ---------------- polling ---------------- */
+let lastJobRunning = false;
+async function poll() {
+  try {
+    const r = await fetch("/api/state");
+    state = await r.json();
+    render();
+    if (lastJobRunning && !state.job.running) { loadGames(); loadActivity(); }
+    lastJobRunning = state.job.running;
+  } catch (e) { /* server restarting */ }
+  setTimeout(poll, state && state.job.running ? 1200 : 2500);
+}
+
+function render() {
+  const m = state.metrics, j = state.job;
+  $("#dot-humble").classList.toggle("on", state.logins.humble);
+  $("#dot-steam").classList.toggle("on", state.logins.steam);
+
+  renderTiles(m);
+  renderPipeline(m);
+  renderServices(m);
+
+  // job panel
+  const pct = j.total ? Math.round(100 * j.current / j.total) : (j.running ? 8 : 0);
+  $("#progressbar").style.width = pct + "%";
+  $("#btn-cancel").disabled = !j.running;
+  let line = j.running
+    ? `${j.job} — ${j.message || j.phase}` + (j.total ? ` (${j.current}/${j.total})` : "")
+    : (j.finished_at ? `Idle. Last job finished ${j.finished_at}.` : "Idle.");
+  if (j.rate_limit_until > 0) {
+    const s = Math.max(0, Math.round(j.rate_limit_until - Date.now()/1000));
+    line += ` — rate-limited, retrying in ${Math.floor(s/60)}m ${s%60}s`;
+  }
+  $("#jobline").textContent = line;
+  const log = $("#joblog");
+  const atBottom = log.scrollTop + log.clientHeight >= log.scrollHeight - 30;
+  log.textContent = (j.log || []).join("\n");
+  if (atBottom) log.scrollTop = log.scrollHeight;
+}
+
+/* ---------------- dashboard: tiles ---------------- */
+function tile(v, l, s) {
+  return `<div class="card tile"><div class="v">${v}</div><div class="l">${l}</div>${s?`<div class="s">${s}</div>`:""}</div>`;
+}
+function renderTiles(m) {
+  const done = m.redeemed + m.already_owned;
+  $("#tiles").innerHTML =
+    tile(m.total_keys, "Humble keys found", `${m.steam_keys} Steam · ${m.total_keys - m.steam_keys} other stores`) +
+    tile(m.candidates, "Ready to redeem", "unowned Steam keys with no result yet") +
+    tile(m.unrevealed_steam, "Unrevealed Steam keys", "hidden on Humble until revealed") +
+    tile(m.likely_owned, "Needs review", "probable duplicates — confirm in Library") +
+    tile(done, "Processed", `${m.redeemed} redeemed · ${m.already_owned} already owned · ${m.errored} errored`
+      + (m.license_count ? `<br>${m.license_verified}/${m.redeemed} verified in Steam licenses` : "")) +
+    tile(m.steam_library, "Steam library size", m.steam_synced_at ? "synced " + m.steam_synced_at : "not synced yet") +
+    tile(m.spare_keys, "Spare keys to give away", `duplicates of games you own · ${m.given_away} already given`);
+}
+
+/* ---------------- dashboard: pipeline stacked bar ---------------- */
+function renderPipeline(m) {
+  const done = m.redeemed + m.already_owned + m.owned_match + m.gift_links + m.errored;
+  const segs = [
+    { k: "Redeemed", v: m.redeemed, c: css("--good") },
+    { k: "Already owned", v: m.already_owned + m.owned_match, c: css("--accent") },
+    { k: "Gift links", v: m.gift_links, c: css("--warn") },
+    { k: "Errored", v: m.errored, c: css("--critical") },
+    { k: "Remaining", v: Math.max(0, m.total_keys - done), c: css("--neutral-seg") },
+  ].filter(s => s.v > 0);
+  const total = segs.reduce((a, s) => a + s.v, 0) || 1;
+  const W = 640, H = 34;
+  let x = 0, rects = "";
+  segs.forEach((s, i) => {
+    const w = Math.max(2, s.v / total * W - 2);
+    rects += `<rect x="${x}" y="4" width="${w}" height="26" rx="4" fill="${s.c}"
+      data-tip="${esc(s.k)}: ${s.v} (${Math.round(100*s.v/total)}%)"></rect>`;
+    x += w + 2;
+  });
+  $("#pipeline").innerHTML =
+    `<svg viewBox="0 0 ${W} ${H}" width="100%" style="display:block">${rects}</svg>`;
+  $("#pipeline-legend").innerHTML = segs.map(s =>
+    `<span><span class="sw" style="background:${s.c}"></span>${esc(s.k)} · ${s.v}</span>`).join("");
+  hookTips("#pipeline");
+}
+
+/* ---------------- dashboard: services bars ---------------- */
+function renderServices(m) {
+  let rows = (m.by_service || []).filter(s => s.count > 0);
+  if (rows.length > 8) {
+    const tail = rows.slice(7);
+    rows = rows.slice(0, 7);
+    rows.push({ service: `Other (${tail.length} stores)`,
+                count: tail.reduce((a, r) => a + r.count, 0) });
+  }
+  const max = Math.max(...rows.map(r => r.count), 1);
+  $("#services").innerHTML = rows.map(r => {
+    const pct = Math.max(1.5, r.count / max * 100);
+    return `<div style="display:grid;grid-template-columns:90px 1fr 46px;gap:8px;align-items:center;margin:7px 0">
+      <span style="color:var(--ink-2);font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(r.service)}</span>
+      <div style="height:14px;background:var(--grid);border-radius:4px;overflow:hidden">
+        <div style="width:${pct}%;height:100%;background:var(--accent);border-radius:4px"
+             data-tip="${esc(r.service)}: ${r.count} keys"></div></div>
+      <span style="font-variant-numeric:tabular-nums;color:var(--ink-2);font-size:12.5px">${r.count}</span>
+    </div>`;
+  }).join("") || `<p class="mini">Sync Humble to populate.</p>`;
+  hookTips("#services");
+}
+
+/* ---------------- dashboard: activity columns ---------------- */
+async function loadActivity() {
+  const days = await (await fetch("/api/activity")).json();
+  const el = $("#activity");
+  if (!days.length) { el.innerHTML = `<p class="mini">No redemption history yet.</p>`; return; }
+  const recent = days.slice(-30);
+  const W = 640, H = 150, pad = 26;
+  const max = Math.max(...recent.map(d => d.success + d.owned + d.errored), 1);
+  const bw = Math.min(26, (W - pad) / recent.length - 3);
+  let bars = "", labels = "";
+  recent.forEach((d, i) => {
+    const x = pad + i * ((W - pad) / recent.length);
+    const total = d.success + d.owned + d.errored;
+    const h = Math.max(3, total / max * (H - 34));
+    bars += `<rect x="${x}" y="${H - 20 - h}" width="${bw}" height="${h}" rx="4" fill="${css("--accent")}"
+      data-tip="${d.day}: ${total} keys — ${d.success} redeemed, ${d.owned} owned, ${d.errored} errored"></rect>`;
+    if (recent.length <= 12 || i % Math.ceil(recent.length / 8) === 0)
+      labels += `<text x="${x + bw/2}" y="${H - 6}" text-anchor="middle" font-size="10" fill="${css("--ink-muted")}">${d.day.slice(5)}</text>`;
+  });
+  el.innerHTML = `<svg viewBox="0 0 ${W} ${H}" width="100%" style="display:block">
+    <line x1="${pad}" y1="${H-20}" x2="${W}" y2="${H-20}" stroke="${css("--baseline")}" stroke-width="1"/>
+    <text x="0" y="12" font-size="10" fill="${css("--ink-muted")}">${max}</text>
+    ${bars}${labels}</svg>`;
+  hookTips("#activity");
+}
+
+/* ---------------- tooltip ---------------- */
+function hookTips(scope) {
+  document.querySelectorAll(scope + " [data-tip]").forEach(n => {
+    n.onmousemove = e => {
+      const t = $("#tooltip");
+      t.style.display = "block";
+      t.textContent = n.dataset.tip;
+      t.style.left = Math.min(e.clientX + 14, innerWidth - 240) + "px";
+      t.style.top = (e.clientY + 14) + "px";
+    };
+    n.onmouseleave = () => $("#tooltip").style.display = "none";
+  });
+}
+
+/* ---------------- library table ---------------- */
+async function loadGames() {
+  games = await (await fetch("/api/games")).json();
+  renderTable();
+}
+document.querySelectorAll(".fchip").forEach(c => c.onclick = () => {
+  document.querySelectorAll(".fchip").forEach(x => x.classList.toggle("active", x === c));
+  filter = c.dataset.f; renderTable();
+});
+$("#search").oninput = () => renderTable();
+$("#checkall").onchange = e => {
+  const rows = visibleRows();
+  selected = e.target.checked ? new Set(rows.map(g => g.id)) : new Set();
+  renderTable();
+};
+
+function visibleRows() {
+  const q = $("#search").value.trim().toLowerCase();
+  return games.filter(g => {
+    if (q && !g.human_name.toLowerCase().includes(q)) return false;
+    switch (filter) {
+      case "candidates": return g.service === "Steam" && !g.redeem_status && !g.is_expired && !g.is_gift
+        && !["owned_appid","owned_name","owned_manual","likely_owned"].includes(g.match_status);
+      case "review": return g.match_status === "likely_owned";
+      case "unrevealed": return !g.revealed && g.service === "Steam";
+      case "redeemed": return g.redeem_status === "redeemed";
+      case "unverified": return g.redeem_status === "redeemed" && !g.steam_license;
+      case "owned": return g.redeem_status === "already_owned"
+        || ["owned_appid","owned_name","owned_manual"].includes(g.match_status);
+      case "errored": return g.redeem_status === "errored";
+      case "nonsteam": return g.service !== "Steam";
+      default: return true;
+    }
+  });
+}
+
+function matchCell(g) {
+  switch (g.match_status) {
+    case "owned_appid": return `<span class="tag info" title="matched by Steam AppID">owned (AppID)</span>`;
+    case "owned_name": return `<span class="tag info" title="exact name match: ${esc(g.match_name)}">owned (name)</span>`;
+    case "owned_manual": return `<span class="tag info">owned (you confirmed)</span>`;
+    case "not_owned_manual": return `<span class="tag">not owned (you confirmed)</span>`;
+    case "likely_owned": return `<span class="tag warn" title="fuzzy ${g.match_score}%">≈ ${esc(g.match_name)} (${g.match_score}%)</span>
+      <button class="btn" style="padding:2px 8px;font-size:11.5px" onclick="mark(${g.id},'owned_manual')">own it</button>
+      <button class="btn" style="padding:2px 8px;font-size:11.5px" onclick="mark(${g.id},'not_owned_manual')">don't</button>`;
+    case "unowned": return `<span class="mini">not owned</span>`;
+    default: return `<span class="mini">—</span>`;
+  }
+}
+function statusCell(g) {
+  if (g.is_expired) return `<span class="tag bad">expired</span>`;
+  switch (g.redeem_status) {
+    case "redeemed": return g.steam_license
+      ? `<span class="tag good" title="Steam license: ${esc(g.steam_license)}">redeemed ✓lic</span>`
+      : `<span class="tag good">redeemed</span>`;
+    case "already_owned": return `<span class="tag info">already owned</span>`;
+    case "errored": return `<span class="tag bad" title="${esc(g.last_result_label)}">errored</span>`;
+    case "gift_link": return `<span class="tag warn">gift link</span>`;
+    default: return `<span class="mini">pending</span>`;
+  }
+}
+
+function renderTable() {
+  const rows = visibleRows();
+  $("#gametable tbody").innerHTML = rows.slice(0, 1500).map(g => `<tr>
+    <td><input type="checkbox" data-id="${g.id}" ${selected.has(g.id) ? "checked" : ""}></td>
+    <td>${esc(g.human_name)}${g.is_gift ? ' <span class="mini">(gift)</span>' : ""}</td>
+    <td><span class="mini">${esc(g.service || "?")}</span></td>
+    <td>${g.revealed ? "✓" : `<span class="mini">hidden</span>`}</td>
+    <td>${matchCell(g)}</td>
+    <td>${statusCell(g)}</td>
+    <td class="mini" style="font-family:Consolas,monospace">${esc(g.redeemed_key_val || "")}</td>
+    <td>${g.service === "Steam" && !g.redeem_status && !g.is_expired
+        ? `<button class="btn" style="padding:2px 10px;font-size:11.5px" onclick="redeemOne(${g.id})">redeem</button>` : ""}</td>
+  </tr>`).join("");
+  $("#tablecount").textContent = `${rows.length} of ${games.length} entries` + (rows.length > 1500 ? " (showing first 1500)" : "");
+  $("#selcount").textContent = selected.size ? `${selected.size} selected` : "";
+  document.querySelectorAll("#gametable tbody input[type=checkbox]").forEach(cb =>
+    cb.onchange = () => { cb.checked ? selected.add(+cb.dataset.id) : selected.delete(+cb.dataset.id);
+      $("#selcount").textContent = selected.size ? `${selected.size} selected` : ""; });
+}
+
+async function mark(id, status) {
+  await fetch("/api/keys/mark", { method: "POST", headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({ ids: [id], status }) });
+  await loadGames();
+}
+function redeemOne(id) { startJob("redeem", { ids: [id] }); }
+async function resetSelected() {
+  if (!selected.size) { alert("Select some rows first."); return; }
+  await fetch("/api/keys/reset", { method: "POST", headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({ ids: [...selected] }) });
+  selected = new Set(); await loadGames();
+}
+async function resetErrored() {
+  if (!confirm("Clear the errored status on every errored entry so they can be retried?")) return;
+  const r = await fetch("/api/keys/reset", { method: "POST", headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({ all_errored: true }) });
+  const j = await r.json();
+  alert(`Reset ${j.count} entries — they're back in the candidate pool.`);
+  await loadGames();
+}
+function bulk(kind) {
+  if (!selected.size) { alert("Select some rows first."); return; }
+  startJob(kind, { ids: [...selected] });
+  selected = new Set(); renderTable();
+}
+
+/* ---------------- giveaway ---------------- */
+let spares = [], gselected = new Set();
+
+async function loadSpares() {
+  const inc = $("#gshowgiven").checked ? "?include_given=1" : "";
+  spares = await (await fetch("/api/giveaway" + inc)).json();
+  renderSpares();
+}
+$("#gsearch").oninput = () => renderSpares();
+$("#gshowgiven").onchange = () => loadSpares();
+$("#gcheckall").onchange = e => {
+  gselected = e.target.checked ? new Set(visibleSpares().map(g => g.id)) : new Set();
+  renderSpares();
+};
+
+function visibleSpares() {
+  const q = $("#gsearch").value.trim().toLowerCase();
+  return spares.filter(g => !q || g.human_name.toLowerCase().includes(q));
+}
+
+function spareWhy(g) {
+  const owned = { owned_appid: "you own it (AppID match)",
+                  owned_name: "you own it (name match)",
+                  owned_manual: "you own it (you confirmed)" }[g.match_status];
+  if (g.redeem_status === "already_owned") {
+    const legacy = (g.last_result_label || "").startsWith("legacy") || g.last_result_code == null;
+    if (legacy && !owned)
+      return `<span class="tag warn" title="From an old run — Steam's 'already owned' and 'key used by another account' were logged the same way back then.">verify first</span>`;
+    return `<span class="tag info" title="Steam refused activation because you own it — the key was NOT consumed.">Steam said owned</span>`
+      + (legacy ? ` <span class="tag warn" title="Old-run entry — can't rule out the key being used by another account.">verify first</span>` : "");
+  }
+  return `<span class="tag info">${owned || "owned"}</span>`;
+}
+
+function spareKeyCell(g) {
+  const v = g.redeemed_key_val;
+  if (v) {
+    const isLink = v.startsWith("http");
+    const shown = isLink ? `<a href="${esc(v)}" target="_blank">${esc(v)}</a>`
+      : `<span class="copykey" data-copy="${esc(v)}" title="click to copy"
+           style="font-family:Consolas,monospace;cursor:pointer">${esc(v)}</span>`;
+    return `${shown}
+      <button class="btn" style="padding:2px 8px;font-size:11.5px" data-copy="${esc(v)}">copy</button>`;
+  }
+  return `<span class="mini">unrevealed</span>
+    <button class="btn" style="padding:2px 8px;font-size:11.5px" onclick="makeGiftLink(${g.id}, this)">Make gift link</button>`;
+}
+
+function fmtExpiry(g) {
+  if (!g.expires) return `<span class="mini">never</span>`;
+  const d = new Date(g.expires);
+  const days = Math.round((d - Date.now()) / 86400000);
+  const txt = g.expires.slice(0, 10);
+  if (days < 0) return `<span class="tag bad">${txt} (expired)</span>`;
+  if (days <= 30) return `<span class="tag warn" title="${days} days left">${txt}</span>`;
+  return `<span class="mini">${txt}</span>`;
+}
+
+function mailtoSpare(list) {
+  const body = list.map(g =>
+    `${g.human_name}\n${g.redeemed_key_val || "(unrevealed)"}` +
+    (g.expires ? `\n(expires ${g.expires.slice(0,10)})` : "")).join("\n\n");
+  const subject = list.length === 1
+    ? `Steam key: ${list[0].human_name}`
+    : `${list.length} Steam keys for you`;
+  const url = `mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(
+    "Here you go!\n\n" + body + "\n\nRedeem at https://store.steampowered.com/account/registerkey")}`;
+  if (url.length > 1900 && list.length > 1) {
+    alert("That's too many keys for one email link — select fewer at a time (or use Copy/Export and paste manually).");
+    return;
+  }
+  location.href = url;
+}
+
+function renderSpares() {
+  const rows = visibleSpares();
+  $("#givetable tbody").innerHTML = rows.map(g => `<tr${g.given_away ? ' style="opacity:.5"' : ""}>
+    <td><input type="checkbox" data-id="${g.id}" ${gselected.has(g.id) ? "checked" : ""}></td>
+    <td>${esc(g.human_name)}${g.notes ? ` <span class="mini" title="${esc(g.notes)}">📝</span>` : ""}</td>
+    <td>${spareKeyCell(g)}</td>
+    <td>${fmtExpiry(g)}</td>
+    <td>${spareWhy(g)}</td>
+    <td>${g.given_away ? "✓" : ""}</td>
+    <td><button class="btn" style="padding:2px 8px;font-size:11.5px" title="draft an email with this key"
+        onclick="emailOne(${g.id})">✉ email</button></td>
+  </tr>`).join("");
+  document.querySelectorAll("#givetable [data-copy]").forEach(n =>
+    n.onclick = () => copyText(n.dataset.copy, n.tagName === "BUTTON" ? n : null));
+  $("#givecount").textContent = `${rows.length} spare keys`;
+  $("#gselcount").textContent = gselected.size ? `${gselected.size} selected` : "";
+  document.querySelectorAll("#givetable tbody input[type=checkbox]").forEach(cb =>
+    cb.onchange = () => { cb.checked ? gselected.add(+cb.dataset.id) : gselected.delete(+cb.dataset.id);
+      $("#gselcount").textContent = gselected.size ? `${gselected.size} selected` : ""; });
+}
+
+async function copyText(text, btn) {
+  await navigator.clipboard.writeText(text);
+  if (btn) { const old = btn.textContent; btn.textContent = "✓"; setTimeout(() => btn.textContent = old, 1200); }
+}
+function copyAllSpares() {
+  const lines = visibleSpares().filter(g => g.redeemed_key_val)
+    .map(g => `${g.human_name} — ${g.redeemed_key_val}`
+      + (g.expires ? ` (expires ${g.expires.slice(0,10)})` : ""));
+  copyText(lines.join("\n"));
+  alert(`Copied ${lines.length} keys to clipboard (unrevealed spares excluded).`);
+}
+function copyRedditTable() {
+  const rows = visibleSpares().filter(g => g.redeemed_key_val && !g.redeemed_key_val.startsWith("http"));
+  const md = ["Game | Key | Expires", ":-- | :-- | :--",
+    ...rows.map(g => `${g.human_name.replace(/\|/g, "\\|")} | \`${g.redeemed_key_val}\` | ${g.expires ? g.expires.slice(0,10) : "never"}`)
+  ].join("\n");
+  copyText("First come, first served — please comment what you took!\n\n" + md);
+  alert(`Copied a Reddit-formatted table of ${rows.length} keys to clipboard. Paste it into a post on r/steam_giveaway or similar.`);
+}
+function sparesForNamesList() {
+  // one line per key, sorted so duplicate titles sit next to each other
+  return [...visibleSpares()].sort((a, b) =>
+    a.human_name.localeCompare(b.human_name, undefined, { sensitivity: "base" }));
+}
+function copyNamesList() {
+  const rows = sparesForNamesList();
+  const md = ["Spare Steam keys — DM me for a key! (crossed out = gone)", "",
+    ...rows.map(g => "- " + g.human_name
+      + (g.expires ? ` *(key expires ${g.expires.slice(0,10)})*` : ""))
+  ].join("\n");
+  copyText(md);
+  alert(`Copied ${rows.length} game names (no keys) as a Reddit-ready list. Duplicates are adjacent.`);
+}
+function exportNames() {
+  const rows = [["game","expires"]];
+  sparesForNamesList().forEach(g =>
+    rows.push([g.human_name, g.expires ? g.expires.slice(0,10) : "never"]));
+  const csv = rows.map(r => r.map(c => `"${String(c).replace(/"/g, '""')}"`).join(",")).join("\n");
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob(["﻿" + csv], { type: "text/csv" }));
+  a.download = "giveaway_names.csv";
+  a.click();
+}
+function emailOne(id) {
+  const g = spares.find(s => s.id === id);
+  if (g) mailtoSpare([g]);
+}
+function emailSpares() {
+  const list = spares.filter(g => gselected.has(g.id));
+  if (!list.length) { alert("Select some rows first."); return; }
+  mailtoSpare(list);
+}
+function exportSpares() {
+  const rows = [["title","key_or_link","expires","status","given_away","note"]];
+  visibleSpares().forEach(g => rows.push([g.human_name, g.redeemed_key_val || "unrevealed",
+    g.expires ? g.expires.slice(0,10) : "never",
+    g.redeem_status || g.match_status, g.given_away ? "yes" : "no", g.notes || ""]));
+  const csv = rows.map(r => r.map(c => `"${String(c).replace(/"/g, '""')}"`).join(",")).join("\n");
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob(["﻿" + csv], { type: "text/csv" }));
+  a.download = "giveaway_keys.csv";
+  a.click();
+}
+async function giveSelected(given) {
+  if (!gselected.size) { alert("Select some rows first."); return; }
+  let note = "";
+  if (given) note = prompt("Optional note (who you gave them to):", "") || "";
+  await fetch("/api/keys/give", { method: "POST", headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({ ids: [...gselected], given, note }) });
+  gselected = new Set();
+  await loadSpares();
+}
+async function makeGiftLink(id, btn) {
+  if (btn) { btn.disabled = true; btn.textContent = "creating…"; }
+  const r = await fetch("/api/keys/giftlink", { method: "POST",
+    headers: {"Content-Type": "application/json"}, body: JSON.stringify({ id }) });
+  const j = await r.json();
+  if (!j.ok) { alert(j.message); if (btn) { btn.disabled = false; btn.textContent = "Make gift link"; } }
+  else await loadSpares();
+}
+
+/* ---------------- jobs ---------------- */
+async function startJob(type, params) {
+  const r = await fetch("/api/job", { method: "POST", headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({ type, params: params || {} }) });
+  const j = await r.json();
+  if (!j.ok) alert(j.message);
+}
+function cancelJob() { fetch("/api/job/cancel", { method: "POST" }); }
+function revealAll() {
+  if (!confirm("Reveal EVERY unrevealed key on Humble (all stores)?\n\n" +
+      "This exposes the raw key values so you can copy/share them, but removes " +
+      "the option to create Humble gift links for these keys. It can't be undone."))
+    return;
+  startJob("reveal", { scope: "all" });
+}
+
+/* ---------------- settings ---------------- */
+function fillSettings() {
+  const s = state ? state.settings : {};
+  $("#s-apikey").value = s.steam_api_key || "";
+  $("#s-steamid").value = s.steam_id_64 || "";
+  $("#s-threshold").value = s.fuzzy_threshold || 90;
+  $("#s-delay").value = s.per_key_delay || 1.5;
+  $("#s-ratewait").value = s.rate_limit_wait_min || 30;
+  $("#s-autoreveal").checked = s.auto_reveal === "1";
+  $("#s-likely").checked = s.redeem_likely_owned === "1";
+}
+async function saveSettings(e) {
+  e.preventDefault();
+  await fetch("/api/settings", { method: "POST", headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({
+      steam_api_key: $("#s-apikey").value.trim(),
+      steam_id_64: $("#s-steamid").value.trim(),
+      fuzzy_threshold: $("#s-threshold").value,
+      per_key_delay: $("#s-delay").value,
+      rate_limit_wait_min: $("#s-ratewait").value,
+      auto_reveal: $("#s-autoreveal").checked ? "1" : "0",
+      redeem_likely_owned: $("#s-likely").checked ? "1" : "0",
+    }) });
+  $("#settings-msg").textContent = "Saved ✓";
+  setTimeout(() => $("#settings-msg").textContent = "", 2500);
+}
+
+/* ---------------- logins ---------------- */
+function openLogin(which) { dlg("dlg-" + which).showModal(); }
+
+async function loginHumble(e) {
+  e.preventDefault();
+  const msg = $("#h-msg"); msg.className = "msg"; msg.textContent = "Signing in… (starts a headless browser — can take ~15s)";
+  const r = await fetch("/api/login/humble", { method: "POST", headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({
+      email: $("#h-email").value, password: $("#h-pass").value,
+      guard: $("#h-guard").style.display === "none" ? "" : $("#h-guard").value,
+      code: $("#h-code").style.display === "none" ? "" : $("#h-code").value,
+    }) });
+  const j = await r.json();
+  if (j.status === "ok") { dlg("dlg-humble").close(); msg.textContent = ""; }
+  else if (j.status === "needs_guard") { $("#h-guard").style.display = ""; msg.textContent = j.message; }
+  else if (j.status === "needs_2fa") { $("#h-code").style.display = ""; msg.textContent = j.message; }
+  else { msg.className = "msg err"; msg.textContent = j.message; }
+}
+
+async function loginSteam(e) {
+  e.preventDefault();
+  const msg = $("#st-msg"); msg.className = "msg"; msg.textContent = "Signing in…";
+  const r = await fetch("/api/login/steam", { method: "POST", headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({
+      username: $("#st-user").value, password: $("#st-pass").value,
+      code: $("#st-code").style.display === "none" ? "" : $("#st-code").value,
+    }) });
+  const j = await r.json();
+  if (j.status === "ok") { dlg("dlg-steam").close(); msg.textContent = ""; }
+  else if (j.status === "needs_code") { $("#st-code").style.display = ""; msg.textContent = j.message; }
+  else { msg.className = "msg err"; msg.textContent = j.message; }
+}
+
+/* ---------------- boot ---------------- */
+poll();
+loadActivity();
+loadGames();
+</script>
+</body>
+</html>
