@@ -105,6 +105,9 @@ class HumbleClient:
                 if d == webdriver.Chrome:
                     options.add_argument("--headless=new")
                     options.add_argument(f"user-agent={USER_AGENT}")
+                    # keep Chrome's internal chatter (GCM registration etc.)
+                    # out of the app's console
+                    options.add_experimental_option("excludeSwitches", ["enable-logging"])
                 else:
                     options.add_argument("-headless")
                     options.set_preference("general.useragent.override", USER_AGENT)
