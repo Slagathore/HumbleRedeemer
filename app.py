@@ -10,7 +10,9 @@ from flask import Flask, jsonify, request, send_from_directory
 from redeemer.store import Store
 from redeemer.humble_client import HumbleClient
 from redeemer.steam_client import SteamClient
+from redeemer.gog_client import GogClient
 from redeemer.jobs import JobRunner
+from redeemer import attention
 
 HOST = "127.0.0.1"
 PORT = 5757
@@ -19,7 +21,8 @@ app = Flask(__name__, static_folder="static")
 store = Store()
 humble = HumbleClient()
 steam = SteamClient()
-runner = JobRunner(store, humble, steam)
+gog = GogClient()
+runner = JobRunner(store, humble, steam, gog)
 
 # Migrate defaults from the original script if settings are empty
 _settings = store.get_settings()
@@ -52,6 +55,10 @@ def _restore_sessions():
     except Exception:
         pass
     try:
+        gog.try_cookie_login()
+    except Exception:
+        pass
+    try:
         humble.try_cookie_login()
     except Exception:
         pass
@@ -73,6 +80,8 @@ def api_state():
         "logins": {
             "humble": humble.is_logged_in(),
             "steam": steam.is_logged_in(),
+            "gog": gog.is_logged_in(),
+            "gog_login": gog.login_state,
         },
         "settings": store.get_settings(),
     })
@@ -120,12 +129,30 @@ def api_login_steam():
     return jsonify(result)
 
 
+@app.post("/api/login/gog")
+def api_login_gog():
+    """Opens a visible browser window on this machine for GOG sign-in —
+    credentials never pass through the app."""
+    if gog.is_logged_in() or gog.try_cookie_login():
+        return jsonify({"status": "ok", "message": "Already signed in to GOG."})
+    ok, msg = gog.start_interactive_login()
+    return jsonify({"status": "waiting" if ok else "error",
+                    "message": "A browser window opened — sign in to GOG there. "
+                               "This page will update when you're done." if ok else msg})
+
+
+@app.get("/api/attention")
+def api_attention():
+    return jsonify(attention.build_report(store))
+
+
 @app.post("/api/job")
 def api_job():
     data = request.get_json(force=True) or {}
     job_type = data.get("type", "")
     if job_type not in ("sync_humble", "sync_steam", "match", "reveal",
-                        "redeem", "claim_choices", "verify_licenses", "full_auto"):
+                        "redeem", "claim_choices", "verify_licenses",
+                        "sync_gog", "redeem_gog", "full_auto"):
         return jsonify({"ok": False, "message": "Unknown job type."}), 400
     ok, msg = runner.start(job_type, data.get("params") or {})
     return jsonify({"ok": ok, "message": msg})

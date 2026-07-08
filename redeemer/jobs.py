@@ -9,10 +9,11 @@ from .steam_client import code_to_label, valid_steam_key
 
 
 class JobRunner:
-    def __init__(self, store, humble, steam):
+    def __init__(self, store, humble, steam, gog=None):
         self.store = store
         self.humble = humble
         self.steam = steam
+        self.gog = gog
         self._lock = threading.RLock()
         self._thread = None
         self._cancel = threading.Event()
@@ -80,6 +81,8 @@ class JobRunner:
                 "redeem": self._job_redeem,
                 "claim_choices": self._job_claim_choices,
                 "verify_licenses": self._job_verify_licenses,
+                "sync_gog": self._job_sync_gog,
+                "redeem_gog": self._job_redeem_gog,
                 "full_auto": self._job_full_auto,
             }[job_type]
             handler(params)
@@ -457,6 +460,82 @@ class JobRunner:
                         "license name, or just be named differently.")
         self._say(summary)
 
+    def _require_gog(self):
+        if self.gog is None:
+            raise RuntimeError("GOG support not initialized.")
+        if self.gog.is_logged_in():
+            return True
+        self._say("Trying saved GOG session...")
+        if self.gog.try_cookie_login():
+            return True
+        raise RuntimeError("Not signed in to GOG — click the GOG chip to sign in.")
+
+    def _job_sync_gog(self, params):
+        self._require_gog()
+        self._say("Fetching your GOG library...", phase="sync_gog")
+        owned = self.gog.get_owned()
+        self.store.replace_gog_library(owned)
+        self.store.log_event("sync_gog", detail=f"{len(owned)} owned products")
+        self._say(f"GOG library synced: {len(owned)} owned products.")
+
+    def _job_redeem_gog(self, params):
+        """Redeem revealed GOG keys via the gog.com/redeem page, skipping
+        games already in the GOG library."""
+        self._require_gog()
+        try:
+            self._job_sync_gog({})
+        except Exception as e:
+            self._say(f"GOG library sync failed ({e}) — continuing without ownership check.")
+        owned_norm = {matching.normalize(n) for n in self.store.get_gog_library().values()}
+
+        keys = self.store.get_keys(
+            "service='GOG' AND is_expired=0 AND redeem_status='' AND revealed=1 "
+            "AND redeemed_key_val!=''")
+        unrevealed = self.store.get_keys(
+            "service='GOG' AND is_expired=0 AND redeem_status='' AND revealed=0")
+        if unrevealed:
+            self._say(f"{len(unrevealed)} GOG keys are still unrevealed — reveal them first.")
+        todo = []
+        for key in keys:
+            if matching.normalize(key["human_name"]) in owned_norm:
+                self.store.set_key_fields(key["id"], redeem_status="already_owned",
+                                          last_result_label="owned_on_gog",
+                                          last_attempt_at=now_str())
+                self.store.log_event("redeem_gog", key["gamekey"], key["machine_name"],
+                                     key["human_name"], detail="already in GOG library",
+                                     result_label="already_owned")
+                self._say(f"{key['human_name']}: already in your GOG library — kept as a spare.")
+            else:
+                todo.append(key)
+
+        if not todo:
+            self._say("No GOG keys left to redeem.")
+            return
+        self._say(f"Redeeming {len(todo)} GOG keys via gog.com/redeem "
+                  "(a headless browser drives the page)...", phase="redeem_gog")
+        by_id = {k["id"]: k for k in todo}
+        codes = [(k["id"], k["redeemed_key_val"]) for k in todo]
+        stats = {}
+        for ident, status, msg in self.gog.redeem_codes(
+                codes, progress=lambda c, t: self._progress(c, t)):
+            if self._cancel.is_set():
+                break
+            key = by_id[ident]
+            stats[status] = stats.get(status, 0) + 1
+            mapped = {"success": "redeemed", "already_owned": "already_owned",
+                      "used": "errored", "invalid": "errored",
+                      "error": "", "unknown": ""}[status]
+            if mapped:
+                self.store.set_key_fields(key["id"], redeem_status=mapped,
+                                          last_result_label=f"gog_{status}",
+                                          last_attempt_at=now_str())
+            self.store.log_event("redeem_gog", key["gamekey"], key["machine_name"],
+                                 key["human_name"], detail=msg, result_label=status)
+            self._say(f"{key['human_name']}: {status} — {msg}")
+        self.store.log_event("redeem_gog_run", detail=str(stats))
+        self._say("GOG redemption finished — "
+                  + ", ".join(f"{k}: {v}" for k, v in stats.items()))
+
     def _job_full_auto(self, params):
         self._job_claim_choices({})
         if self._cancel.is_set():
@@ -478,6 +557,11 @@ class JobRunner:
         except Exception as e:
             # verification is a nice-to-have; don't fail the whole run on it
             self._say(f"License verification skipped: {e}")
+        if self.gog is not None and (self.gog.is_logged_in() or self.gog.try_cookie_login()):
+            try:
+                self._job_redeem_gog({})
+            except Exception as e:
+                self._say(f"GOG redemption skipped: {e}")
 
     def _set_result(self, key, code, msg):
         label = code_to_label(code)
@@ -494,6 +578,8 @@ class JobRunner:
                              key["human_name"], detail=msg,
                              result_code=code, result_label=label)
         append_legacy_csv(status, key)
+        self.store.record_legacy_row(status, key["gamekey"], key["human_name"],
+                                     key["redeemed_key_val"])
 
 
 def can_reveal(key):

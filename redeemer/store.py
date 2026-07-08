@@ -82,6 +82,11 @@ CREATE TABLE IF NOT EXISTS settings (
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS gog_library (
+    product_id INTEGER PRIMARY KEY,
+    name TEXT NOT NULL,
+    synced_at TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS steam_licenses (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     date TEXT NOT NULL DEFAULT '',
@@ -295,6 +300,22 @@ class Store:
             row = self._conn.execute("SELECT MAX(synced_at) t FROM steam_library").fetchone()
         return row["t"] or ""
 
+    # ---------------- gog library ----------------
+
+    def replace_gog_library(self, owned):
+        ts = now()
+        with self._lock:
+            self._conn.execute("DELETE FROM gog_library")
+            self._conn.executemany(
+                "INSERT OR REPLACE INTO gog_library(product_id,name,synced_at) VALUES(?,?,?)",
+                [(pid, name, ts) for pid, name in owned.items()])
+            self._conn.commit()
+
+    def get_gog_library(self):
+        with self._lock:
+            rows = self._conn.execute("SELECT * FROM gog_library").fetchall()
+        return {r["product_id"]: r["name"] for r in rows}
+
     # ---------------- giveaway ----------------
 
     # A key is a giftable spare when you own the game but the key itself was
@@ -332,6 +353,17 @@ class Store:
         return [dict(r) for r in rows]
 
     # ---------------- legacy CSV import ----------------
+
+    def record_legacy_row(self, status, gamekey, human_name, key_val):
+        """Pre-register a row the app itself appended to the legacy CSVs so the
+        next boot's import doesn't re-ingest it as a duplicate 'legacy' event."""
+        with self._lock:
+            self._conn.execute(
+                "INSERT OR IGNORE INTO legacy_status(gamekey,human_name,key_val,status,source_file) "
+                "VALUES(?,?,?,?,?)",
+                (gamekey, human_name.replace(",", "."), key_val, status, "app"),
+            )
+            self._conn.commit()
 
     def import_legacy_csvs(self, directory="."):
         """One-time import of the old per-run CSVs into legacy_status + events."""
