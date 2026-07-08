@@ -23,9 +23,11 @@ COOKIE_FILE = ".gogcookies"
 USER_AGENT = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
               "(KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36")
 
+# Same-origin on purpose: embed.gog.com's CORS allows the www origin but NOT
+# credentials, so a cross-subdomain credentialed fetch always fails silently.
 CHECK_LOGIN_JS = """
 var done = arguments[arguments.length - 1];
-fetch('https://embed.gog.com/userData.json', {credentials: 'include'})
+fetch('/userData.json', {credentials: 'same-origin'})
   .then(r => r.json()).then(j => done(!!j.isLoggedIn)).catch(() => done(false));
 """
 
@@ -110,16 +112,25 @@ class GogClient:
                        if (b) b.click();""")
             except Exception:
                 pass  # user can click "Sign in" themselves
-            deadline = time.time() + 300  # 5 minutes to sign in
+            deadline = time.time() + 600  # 10 minutes to sign in
             logged_in = False
+            tick = 0
             while time.time() < deadline:
                 try:
-                    # only check from a gog.com page (same-site cookies)
-                    if "gog.com" in driver.current_url:
-                        if "login.gog.com" not in driver.current_url \
-                                and "auth.gog.com" not in driver.current_url:
-                            driver.set_script_timeout(20)
-                            if driver.execute_async_script(CHECK_LOGIN_JS):
+                    url = driver.current_url
+                    # primary: same-origin page check from any www.gog.com page
+                    if "www.gog.com" in url:
+                        driver.set_script_timeout(20)
+                        if driver.execute_async_script(CHECK_LOGIN_JS):
+                            logged_in = True
+                            break
+                    # fallback every ~10s: test the browser's cookies directly
+                    # with requests — immune to page/origin/CORS state
+                    tick += 1
+                    if tick % 4 == 0:
+                        cookies = driver.get_cookies()
+                        if any(c["name"] in ("gog-al", "gog_us") for c in cookies):
+                            if self._session_logged_in(self._make_session(cookies)):
                                 logged_in = True
                                 break
                 except Exception:
@@ -128,7 +139,7 @@ class GogClient:
                         _ = driver.current_url
                     except Exception:
                         break
-                time.sleep(2)
+                time.sleep(2.5)
             if not logged_in:
                 self.login_state = {"status": "error",
                                     "message": "GOG sign-in window closed or timed out."}

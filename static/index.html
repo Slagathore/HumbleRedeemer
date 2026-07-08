@@ -406,6 +406,10 @@ function render() {
   const gl = state.logins.gog_login || {};
   if (gl.status !== lastGogLogin) {
     if (gl.status === "error") alert("GOG sign-in: " + gl.message);
+    if (gl.status === "ok")
+      // freshly signed in — pull the GOG library right away (quiet best-effort)
+      fetch("/api/job", { method: "POST", headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({ type: "sync_gog" }) });
     lastGogLogin = gl.status;
   }
 
