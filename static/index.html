@@ -147,7 +147,7 @@ dialog input {
 </head>
 <body>
 <header>
-  <h1>Humble Steam Key Redeemer</h1>
+  <h1>Humble Steam Key Redeemer <span class="mini" id="ver" title="code version the running app loaded — if this is older than your latest change, restart the app"></span></h1>
   <nav>
     <button data-tab="dashboard" class="active">Dashboard</button>
     <button data-tab="library">Library</button>
@@ -397,6 +397,7 @@ async function poll() {
 
 function render() {
   const m = state.metrics, j = state.job;
+  $("#ver").textContent = state.version ? "· " + state.version : "";
   $("#dot-humble").classList.toggle("on", state.logins.humble);
   $("#dot-steam").classList.toggle("on", state.logins.steam);
   $("#dot-gog").classList.toggle("on", state.logins.gog);

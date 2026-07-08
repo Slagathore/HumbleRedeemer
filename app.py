@@ -2,7 +2,10 @@
 
 Run:  python app.py   (then open http://127.0.0.1:5757)
 """
+import glob
+import os
 import threading
+import time
 import webbrowser
 
 from flask import Flask, jsonify, request, send_from_directory
@@ -16,6 +19,19 @@ from redeemer import attention
 
 HOST = "127.0.0.1"
 PORT = 5757
+
+
+def _code_version():
+    """Newest mtime across the source files — shown in the UI so a stale
+    running process (old code in memory) is immediately visible."""
+    files = ["app.py", "static/index.html"] + glob.glob("redeemer/*.py")
+    stamps = [os.path.getmtime(f) for f in files if os.path.exists(f)]
+    if not stamps:
+        return "unknown"
+    return time.strftime("%Y-%m-%d %H:%M", time.localtime(max(stamps)))
+
+
+APP_VERSION = _code_version()
 
 app = Flask(__name__, static_folder="static")
 store = Store()
@@ -75,6 +91,7 @@ def index():
 @app.get("/api/state")
 def api_state():
     return jsonify({
+        "version": APP_VERSION,
         "metrics": store.metrics(),
         "job": runner.snapshot(),
         "logins": {
