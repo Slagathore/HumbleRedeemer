@@ -1,6 +1,6 @@
 # Humble Steam Key Redeemer
 
-If this tool rescued your key library, consider [buying me a coffee ☕](https://ko-fi.com/sparklemuffin)
+If this tool rescued your key library, consider [buying me Half a cup of coffee](https://ko-fi.com/sparklemuffin). Tarriffs amirite. 🥲
 
 ## Web App (recommended)
 
