@@ -50,12 +50,21 @@ jobs:
           cp "dist/${{ matrix.binary }}" pkg/
           cp README.md pkg/
           cd pkg
-          python -m zipfile -c "../${{ matrix.artifact }}.zip" .
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            # also publish the bare exe as its own download
+            cp HumbleRedeemer.exe ..
+            python -m zipfile -c "../${{ matrix.artifact }}.zip" .
+          else
+            # zip (not python -m zipfile) so the executable bit survives
+            zip -r "../${{ matrix.artifact }}.zip" .
+          fi
 
       - name: Attach to release
         uses: softprops/action-gh-release@v2
         with:
-          files: ${{ matrix.artifact }}.zip
+          files: |
+            ${{ matrix.artifact }}.zip
+            HumbleRedeemer.exe
           body: |
             **Humble Steam Key Redeem...er** — unzip, run the binary, and the
             dashboard opens at http://127.0.0.1:5757 (view it in any browser).
