@@ -83,6 +83,7 @@ class JobRunner:
                 "verify_licenses": self._job_verify_licenses,
                 "sync_gog": self._job_sync_gog,
                 "redeem_gog": self._job_redeem_gog,
+                "verify_spares": self._job_verify_spares,
                 "full_auto": self._job_full_auto,
             }[job_type]
             handler(params)
@@ -535,6 +536,90 @@ class JobRunner:
         self.store.log_event("redeem_gog_run", detail=str(stats))
         self._say("GOG redemption finished — "
                   + ", ".join(f"{k}: {v}" for k, v in stats.items()))
+
+    def _job_verify_spares(self, params):
+        """Resolve legacy 'verify first' spares by re-attempting them on Steam.
+
+        Old runs logged Steam codes 9 (you own it — key still valid) and 15
+        (key consumed by another account) into the same CSV without recording
+        which. Re-attempting is safe: 9 refuses again without consuming the
+        key, 15 is already dead. Rarely a key actually redeems (code 0) — that
+        means the old record was wrong and you now own the game.
+        """
+        self._require_steam()
+        settings = self.store.get_settings()
+        wait_min = float(settings.get("rate_limit_wait_min", "30"))
+
+        keys = [k for k in self.store.get_keys(
+            "redeem_status='already_owned' AND last_result_code IS NULL "
+            "AND given_away=0 AND is_expired=0")
+            if valid_steam_key(k["redeemed_key_val"])]
+        self._say(f"Verifying {len(keys)} ambiguous spare keys against Steam. "
+                  "Failed attempts are heavily rate-limited (~10/hour), so this "
+                  "runs long — cancel any time, progress is saved per key.",
+                  phase="verify_spares")
+        stats = {"spare_confirmed": 0, "dead": 0, "redeemed": 0, "other": 0}
+
+        for i, key in enumerate(keys):
+            if self._cancel.is_set():
+                break
+            self._progress(i + 1, len(keys))
+            code, msg = self.steam.redeem_key(key["redeemed_key_val"])
+
+            while code == 53 and not self._cancel.is_set():
+                until = time.time() + wait_min * 60
+                with self._lock:
+                    self.status["rate_limit_until"] = until
+                self._say(f"Rate limited — waiting {wait_min:.0f} min "
+                          f"({stats['spare_confirmed']} spares confirmed, "
+                          f"{stats['dead']} dead so far)...", phase="rate_limited")
+                while time.time() < until and not self._cancel.is_set():
+                    time.sleep(2)
+                with self._lock:
+                    self.status["rate_limit_until"] = 0
+                    self.status["phase"] = "verify_spares"
+                if not self._cancel.is_set():
+                    code, msg = self.steam.redeem_key(key["redeemed_key_val"])
+            if code == 53:
+                break  # cancelled during the wait
+
+            if code == 9:
+                stats["spare_confirmed"] += 1
+                self.store.set_key_fields(key["id"], last_result_code=9,
+                                          last_result_label="already_owned",
+                                          last_attempt_at=now_str())
+                self._say(f"{key['human_name']}: confirmed spare (you own it, key unused).")
+            elif code == 15:
+                stats["dead"] += 1
+                self.store.set_key_fields(key["id"], last_result_code=15,
+                                          last_result_label="duplicate_code_other_account",
+                                          last_attempt_at=now_str())
+                self._say(f"{key['human_name']}: key was used by another account — removed from giveaway.")
+            elif code == 0:
+                stats["redeemed"] += 1
+                self._set_result(key, code, msg)
+                self._say(f"{key['human_name']}: old record was wrong — key was still "
+                          "valid and just redeemed to your account.")
+            else:
+                # invalid / region-locked / anything unexpected: not a giftable
+                # spare — reclassify as errored so it shows decoded on the
+                # Attention page instead of lurking in the giveaway list
+                stats["other"] += 1
+                self.store.set_key_fields(key["id"], redeem_status="errored",
+                                          last_result_code=code,
+                                          last_result_label=code_to_label(code),
+                                          last_attempt_at=now_str())
+                self._say(f"{key['human_name']}: {code_to_label(code)} — {msg}")
+            self.store.log_event("verify_spare", key["gamekey"], key["machine_name"],
+                                 key["human_name"], detail=msg,
+                                 result_code=code, result_label=code_to_label(code))
+            time.sleep(2)
+
+        self.store.log_event("verify_spares_run", detail=str(stats))
+        self._say("Spare verification "
+                  + ("cancelled" if self._cancel.is_set() else "finished")
+                  + f" — {stats['spare_confirmed']} confirmed spares, {stats['dead']} dead, "
+                    f"{stats['redeemed']} unexpectedly redeemed, {stats['other']} other.")
 
     def _job_full_auto(self, params):
         self._job_claim_choices({})

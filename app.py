@@ -152,7 +152,7 @@ def api_job():
     job_type = data.get("type", "")
     if job_type not in ("sync_humble", "sync_steam", "match", "reveal",
                         "redeem", "claim_choices", "verify_licenses",
-                        "sync_gog", "redeem_gog", "full_auto"):
+                        "sync_gog", "redeem_gog", "verify_spares", "full_auto"):
         return jsonify({"ok": False, "message": "Unknown job type."}), 400
     ok, msg = runner.start(job_type, data.get("params") or {})
     return jsonify({"ok": ok, "message": msg})

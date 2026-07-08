@@ -265,6 +265,7 @@ dialog input {
     <button class="btn" onclick="exportSpares()">Export CSV</button>
     <button class="btn primary" onclick="giveSelected(true)">Mark selected as given</button>
     <button class="btn" onclick="giveSelected(false)">Un-mark selected</button>
+    <button class="btn" onclick="verifySpares()" title="Re-attempts each ambiguous key on Steam to learn its true state. Safe, but Steam rate-limits failed attempts to ~10/hour, so this runs for a long time.">Resolve 'verify first' keys (slow)</button>
     <span class="mini" id="gselcount"></span>
   </div>
   <div class="tablewrap">
@@ -797,6 +798,16 @@ async function giveSelected(given) {
     body: JSON.stringify({ ids: [...gselected], given, note }) });
   gselected = new Set();
   await loadSpares();
+}
+function verifySpares() {
+  if (!confirm("Re-attempt every ambiguous ('verify first') key on Steam to learn its true state?\n\n" +
+      "• Keys you own → confirmed spare (unchanged, still giftable)\n" +
+      "• Keys used by another account → marked dead, removed from this list\n" +
+      "• Rarely, a key turns out valid and redeems to your account\n\n" +
+      "Steam rate-limits failed attempts (~10/hour), so this can run for a day or more. " +
+      "Cancel any time — each verified key is saved as it goes."))
+    return;
+  startJob("verify_spares");
 }
 async function makeGiftLink(id, btn) {
   if (btn) { btn.disabled = true; btn.textContent = "creating…"; }
