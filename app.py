@@ -53,18 +53,6 @@ steam = SteamClient()
 gog = GogClient()
 runner = JobRunner(store, humble, steam, gog)
 
-# Migrate defaults from the original script if settings are empty
-_settings = store.get_settings()
-if not _settings.get("steam_api_key") or not _settings.get("steam_id_64"):
-    try:
-        import humblesteamkeysredeemer as legacy
-        store.set_settings({
-            "steam_api_key": _settings.get("steam_api_key") or getattr(legacy, "STEAM_API_KEY", ""),
-            "steam_id_64": _settings.get("steam_id_64") or getattr(legacy, "STEAM_ID_64", ""),
-        })
-    except Exception:
-        pass
-
 # One-time import of the old CSV history (idempotent)
 imported = store.import_legacy_csvs()
 loaded = store.bootstrap_from_master_csvs()
