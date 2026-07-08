@@ -43,27 +43,31 @@ jobs:
           --collect-all selenium --collect-submodules steam
           --hidden-import fuzzywuzzy app.py
 
-      - name: Package zip
+      - name: Package
         shell: bash
         run: |
           mkdir pkg
           cp "dist/${{ matrix.binary }}" pkg/
           cp README.md pkg/
           cd pkg
-          if [ "$RUNNER_OS" = "Windows" ]; then
-            # also publish the bare exe as its own download
-            cp HumbleRedeemer.exe ..
-            python -m zipfile -c "../${{ matrix.artifact }}.zip" .
-          else
-            # zip (not python -m zipfile) so the executable bit survives
-            zip -r "../${{ matrix.artifact }}.zip" .
-          fi
+          case "$RUNNER_OS" in
+            Windows)
+              # bare exe as its own download, plus a zip with the README
+              cp HumbleRedeemer.exe ..
+              python -m zipfile -c "../${{ matrix.artifact }}.zip" . ;;
+            macOS)
+              # zip preserves the executable bit (unlike python -m zipfile)
+              zip -r "../${{ matrix.artifact }}.zip" . ;;
+            Linux)
+              tar czf "../${{ matrix.artifact }}.tar.gz" . ;;
+          esac
 
       - name: Attach to release
         uses: softprops/action-gh-release@v2
         with:
           files: |
             ${{ matrix.artifact }}.zip
+            ${{ matrix.artifact }}.tar.gz
             HumbleRedeemer.exe
           body: |
             **Humble Steam Key Redeem...er** — unzip, run the binary, and the
