@@ -7,6 +7,7 @@ script used.
 import pickle
 import re
 import threading
+import time
 
 import requests
 import steam.webauth as wa
@@ -60,6 +61,7 @@ class SteamClient:
         self._session: "requests.Session | None" = None
         self._lock = threading.RLock()
         self._webauth = None  # pending login awaiting a code
+        self._poll_stop = None  # Event that halts the approval poller thread
 
     # ---------------- session ----------------
 
@@ -98,21 +100,59 @@ class SteamClient:
 
     def _guard_prompt(self):
         allowed = set(getattr(self._webauth, "allowed_confirmations", []) or [])
-        if wa.EAuthSessionGuardType.DeviceCode in allowed:
+        if wa.EAuthSessionGuardType.DeviceConfirmation in allowed:
+            msg = "Approve the sign-in in your Steam mobile app — it will be "\
+                  "picked up automatically."
+            if wa.EAuthSessionGuardType.DeviceCode in allowed:
+                msg += " (Or enter your Steam Guard code below as a backup.)"
+        elif wa.EAuthSessionGuardType.DeviceCode in allowed:
             msg = "Enter your Steam Guard mobile authenticator code."
         elif wa.EAuthSessionGuardType.EmailCode in allowed:
             msg = "Steam emailed you a Guard code — enter it below."
         else:
-            msg = "Approve the sign-in in your Steam mobile app, then press "\
-                  "Sign in again (leave the code empty)."
-        if wa.EAuthSessionGuardType.DeviceConfirmation in allowed \
-                and wa.EAuthSessionGuardType.DeviceCode in allowed:
-            msg += " (Or approve it in the Steam app and press Sign in with an empty code.)"
+            msg = "Confirm the sign-in with Steam Guard, then press Sign in "\
+                  "again (leave the code empty)."
         return msg
+
+    # -------- background approval poller (mobile-app confirmations) --------
+
+    def _cancel_poller(self):
+        if self._poll_stop is not None:
+            self._poll_stop.set()
+            self._poll_stop = None
+
+    def _start_approval_poller(self, w):
+        """Poll Steam every few seconds so that approving the sign-in in the
+        Steam mobile app completes the login without any further clicks.
+        Runs for up to 5 minutes; a manual Guard-code submit still works as a
+        backup and simply wins the race."""
+        stop = threading.Event()
+        self._poll_stop = stop
+        deadline = time.monotonic() + 300
+
+        def _poll():
+            while not stop.wait(5) and time.monotonic() < deadline:
+                with self._lock:
+                    if self._webauth is not w or self._session is not None:
+                        return
+                try:
+                    w._pollLoginStatus()  # raises until the user approves
+                except wa.TwoFactorAuthNotProvided:
+                    continue
+                except Exception:
+                    return  # network/API hiccup — fall back to manual code
+                with self._lock:
+                    if self._webauth is w and self._session is None:
+                        w._finalizeLogin()
+                        self._finish_login(w.session)
+                return
+
+        threading.Thread(target=_poll, daemon=True).start()
 
     def _finish_login(self, session):
         self._session = session
         self._webauth = None
+        self._cancel_poller()
         try:
             pickle.dump(session.cookies, open(COOKIE_FILE, "wb"))
         except Exception:
@@ -129,11 +169,16 @@ class SteamClient:
         with self._lock:
             try:
                 if username and password:
+                    self._cancel_poller()
                     self._webauth = wa.WebAuth(username, password)
                     try:
                         session = self._webauth.login()
                         return self._finish_login(session)
                     except wa.TwoFactorAuthNotProvided:
+                        allowed = set(getattr(self._webauth,
+                                              "allowed_confirmations", []) or [])
+                        if wa.EAuthSessionGuardType.DeviceConfirmation in allowed:
+                            self._start_approval_poller(self._webauth)
                         return {"status": "needs_code", "message": self._guard_prompt()}
                     except wa.LoginIncorrect as e:
                         self._webauth = None
@@ -142,6 +187,9 @@ class SteamClient:
                 # Second phase: continue the pending session with a guard code
                 # (or poll for an in-app approval when the code is empty).
                 if self._webauth is None:
+                    if self._session is not None:
+                        # the background poller caught the in-app approval first
+                        return {"status": "ok", "message": "Signed in to Steam."}
                     return {"status": "error",
                             "message": "Enter username and password first."}
                 w = self._webauth

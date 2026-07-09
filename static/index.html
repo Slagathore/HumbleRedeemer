@@ -402,6 +402,7 @@ const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt
 const css = v => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
 
 let state = null, games = [], filter = "all", selected = new Set(), lastGogLogin = "idle";
+let steamLoginPending = false;  // a Steam login is waiting on Guard approval
 
 /* ---------------- tabs ---------------- */
 document.querySelectorAll("nav button").forEach(b => b.onclick = () => {
@@ -433,6 +434,11 @@ function render() {
   $("#dot-humble").classList.toggle("on", state.logins.humble);
   $("#dot-steam").classList.toggle("on", state.logins.steam);
   $("#dot-gog").classList.toggle("on", state.logins.gog);
+  // in-app Steam Guard approval picked up by the backend poller
+  if (steamLoginPending && state.logins.steam) {
+    resetSteamDialog();
+    if (dlg("dlg-steam").open) dlg("dlg-steam").close();
+  }
   const gl = state.logins.gog_login || {};
   if (gl.status !== lastGogLogin) {
     if (gl.status === "error") alert("GOG sign-in: " + gl.message);
@@ -987,18 +993,30 @@ async function loginHumble(e) {
   else { msg.className = "msg err"; msg.textContent = j.message; }
 }
 
+function resetSteamDialog() {
+  steamLoginPending = false;
+  $("#st-code").style.display = "none"; $("#st-code").value = "";
+  $("#st-msg").className = "msg"; $("#st-msg").textContent = "";
+}
+
 async function loginSteam(e) {
   e.preventDefault();
   const msg = $("#st-msg"); msg.className = "msg"; msg.textContent = "Signing in…";
+  // Once the Guard-code field is shown we're continuing a pending login:
+  // send ONLY the code, or the backend would restart the whole login.
+  const codeVisible = $("#st-code").style.display !== "none";
+  const body = codeVisible
+    ? { code: $("#st-code").value }
+    : { username: $("#st-user").value, password: $("#st-pass").value };
   const r = await fetch("/api/login/steam", { method: "POST", headers: {"Content-Type": "application/json"},
-    body: JSON.stringify({
-      username: $("#st-user").value, password: $("#st-pass").value,
-      code: $("#st-code").style.display === "none" ? "" : $("#st-code").value,
-    }) });
+    body: JSON.stringify(body) });
   const j = await r.json();
-  if (j.status === "ok") { dlg("dlg-steam").close(); msg.textContent = ""; }
-  else if (j.status === "needs_code") { $("#st-code").style.display = ""; msg.textContent = j.message; }
-  else { msg.className = "msg err"; msg.textContent = j.message; }
+  if (j.status === "ok") { resetSteamDialog(); dlg("dlg-steam").close(); }
+  else if (j.status === "needs_code") {
+    steamLoginPending = true;  // app-approval may complete it in the background
+    $("#st-code").style.display = ""; msg.textContent = j.message;
+  }
+  else { resetSteamDialog(); msg.className = "msg err"; msg.textContent = j.message; }
 }
 
 /* ---------------- boot ---------------- */
