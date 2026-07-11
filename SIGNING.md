@@ -2,8 +2,8 @@
 
 Releases are signed with **Azure Artifact Signing** under the shared
 `Slagathores-Apps` account. All account details, machine setup, VPN/IPv6
-gotchas, auth, and quota rules live in the central playbook —
-`C:\Users\Cole\CodeStuff\CODE-SIGNING-PLAYBOOK.md` — don't duplicate them here.
+gotchas, auth, and quota rules live in the central code-signing playbook
+(local, not in this repo) — don't duplicate them here.
 
 ## Local signed release (the current flow)
 
