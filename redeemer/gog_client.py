@@ -13,6 +13,8 @@ import time
 import requests
 from selenium import webdriver
 
+from .driverutil import chrome_service
+
 GOG_HOME = "https://www.gog.com/en/"
 GOG_REDEEM_PAGE = "https://www.gog.com/redeem"
 GOG_USERDATA = "https://embed.gog.com/userData.json"
@@ -36,6 +38,7 @@ class GogClient:
     def __init__(self):
         self._lock = threading.RLock()
         self._session = None
+        self._last_known = False  # last is_logged_in answer, for lock-free reads
         self.login_state = {"status": "idle", "message": ""}
 
     # ---------------- session ----------------
@@ -60,8 +63,15 @@ class GogClient:
             return False
 
     def is_logged_in(self):
-        with self._lock:
-            return self._session is not None
+        # Non-blocking: try_cookie_login holds the lock through a network
+        # round-trip; the UI's state poll must not stall behind it.
+        if not self._lock.acquire(blocking=False):
+            return self._last_known
+        try:
+            self._last_known = self._session is not None
+            return self._last_known
+        finally:
+            self._lock.release()
 
     def try_cookie_login(self):
         with self._lock:
@@ -72,6 +82,7 @@ class GogClient:
             session = self._make_session(cookies)
             if self._session_logged_in(session):
                 self._session = session
+                self._last_known = True
                 return True
             return False
 
@@ -94,7 +105,7 @@ class GogClient:
             opts = webdriver.ChromeOptions()
             opts.add_argument("--window-size=1100,850")
             opts.add_experimental_option("excludeSwitches", ["enable-logging"])
-            driver = webdriver.Chrome(options=opts)
+            driver = webdriver.Chrome(options=opts, service=chrome_service())
             driver.get(GOG_HOME)
             time.sleep(4)
             # Use the site's own sign-in flow (a modal) rather than guessing
@@ -202,7 +213,7 @@ class GogClient:
         opts.add_argument("--window-size=1280,900")
         opts.add_argument(f"user-agent={USER_AGENT}")
         opts.add_experimental_option("excludeSwitches", ["enable-logging"])
-        driver = webdriver.Chrome(options=opts)
+        driver = webdriver.Chrome(options=opts, service=chrome_service())
         driver.get(GOG_HOME)
         try:
             cookies = pickle.load(open(COOKIE_FILE, "rb"))

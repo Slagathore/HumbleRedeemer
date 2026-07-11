@@ -1,0 +1,7 @@
+{
+  "_readme": "Emergency-update switch, read from GitHub by running apps. Normal releases: leave emergency=false — users just get the regular update banner (which they may silence). For an URGENT release (security fix, Humble/Steam API breakage that could burn keys): set emergency=true, give it a unique id like 2026-07-10-steam-fix, and explain the urgency in title/message. Every running app that is behind the repo then shows a red banner with that message, OVERRIDING any 'silence updates' choice the user made. Flip emergency back to false in a later release.",
+  "emergency": false,
+  "id": "",
+  "title": "",
+  "message": ""
+}

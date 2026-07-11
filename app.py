@@ -2,8 +2,11 @@
 
 Run:  python app.py   (then open http://127.0.0.1:5757)
 """
+import atexit
 import glob
 import os
+import signal
+import socket
 import sys
 import threading
 import time
@@ -20,12 +23,32 @@ if FROZEN:
 else:
     STATIC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
 
+# Windowless mode (pythonw / --windowed build): stdout doesn't exist, so keep
+# print/log output in app.log next to the database instead of losing it.
+if sys.stdout is None or sys.stderr is None:
+    try:
+        _mode = "w" if (os.path.exists("app.log")
+                        and os.path.getsize("app.log") > 1_000_000) else "a"
+        _log = open("app.log", _mode, buffering=1, encoding="utf-8", errors="replace")
+        if sys.stdout is None:
+            sys.stdout = _log
+        if sys.stderr is None:
+            sys.stderr = _log
+        print(f"--- launched {time.strftime('%Y-%m-%d %H:%M:%S')} ---")
+    except OSError:
+        pass  # read-only dir — run silent
+
+# the per-request lines have no value in a desktop app and bloat app.log
+import logging
+logging.getLogger("werkzeug").setLevel(logging.WARNING)
+
 from redeemer.store import Store
 from redeemer.humble_client import HumbleClient
 from redeemer.steam_client import SteamClient
 from redeemer.gog_client import GogClient
 from redeemer.jobs import JobRunner
 from redeemer import attention
+from redeemer import update_check
 
 HOST = "127.0.0.1"
 PORT = int(os.environ.get("APP_PORT", "5757"))
@@ -81,12 +104,81 @@ def _restore_sessions():
         pass
 
 
-threading.Thread(target=_restore_sessions, daemon=True).start()
+def _startup_update_scan():
+    """Non-blocking update check at launch; result is cached for the UI."""
+    status = update_check.get_status()
+    if status.get("update_available"):
+        behind = status.get("behind_by")
+        print(f"⬆ Update available on GitHub"
+              + (f" ({behind} new commit{'s' if behind != 1 else ''})" if behind else "")
+              + f": {status.get('remote_message', '')}\n  {update_check.REPO_URL}")
+    notice = status.get("emergency") or {}
+    if status.get("update_available") and notice.get("emergency"):
+        print(f"⚠ URGENT UPDATE: {notice.get('title', '')} — {notice.get('message', '')}")
+
+
+if not os.environ.get("APP_NO_RESTORE"):
+    threading.Thread(target=_restore_sessions, daemon=True).start()
+if not os.environ.get("APP_NO_UPDATE_CHECK"):
+    threading.Thread(target=_startup_update_scan, daemon=True).start()
+
+
+# ---------------- lifecycle: clean exit, no orphaned browsers ----------------
+
+_shutting_down = threading.Event()
+
+
+def _cleanup():
+    """Stop the worker and quit headless browsers — safe to call twice."""
+    if _shutting_down.is_set():
+        return
+    _shutting_down.set()
+    try:
+        runner.stop(timeout=5)
+    except Exception:
+        pass
+    try:
+        humble.shutdown()
+    except Exception:
+        pass
+
+
+atexit.register(_cleanup)
+for _sig in ("SIGTERM", "SIGBREAK"):
+    if hasattr(signal, _sig):
+        try:
+            signal.signal(getattr(signal, _sig), lambda *_: sys.exit(0))
+        except (ValueError, OSError):
+            pass  # not the main thread / unsupported — atexit still covers us
+
+
+# --------------- request guard: this app is 127.0.0.1-only ---------------
+# Blocks DNS-rebinding (Host must be ours) and cross-site POSTs from web pages
+# (a random website must not be able to start jobs or reveal keys).
+
+_ALLOWED_HOSTS = {f"127.0.0.1:{PORT}", f"localhost:{PORT}"}
+_ALLOWED_ORIGINS = {f"http://{h}" for h in _ALLOWED_HOSTS}
+
+
+@app.before_request
+def _local_only_guard():
+    if request.host not in _ALLOWED_HOSTS:
+        return jsonify({"ok": False, "message": "Bad Host header."}), 403
+    if request.method == "POST":
+        origin = request.headers.get("Origin", "")
+        if origin and origin not in _ALLOWED_ORIGINS:
+            return jsonify({"ok": False,
+                            "message": "Cross-origin request blocked."}), 403
 
 
 @app.get("/")
 def index():
     return send_from_directory(STATIC_DIR, "index.html")
+
+
+@app.get("/favicon.ico")
+def favicon():
+    return send_from_directory(STATIC_DIR, "icon.ico")
 
 
 @app.get("/api/state")
@@ -120,12 +212,36 @@ def api_events():
     return jsonify(store.get_events(limit=300))
 
 
+# numeric settings: (min, max) — clamped so a stray value can't crash a job
+_NUMERIC_SETTINGS = {
+    "fuzzy_threshold": (70, 100),
+    "per_key_delay": (0, 600),
+    "rate_limit_wait_min": (1, 720),
+}
+
+
 @app.post("/api/settings")
 def api_settings():
     data = request.get_json(force=True) or {}
     allowed = {"steam_api_key", "steam_id_64", "fuzzy_threshold", "per_key_delay",
-               "rate_limit_wait_min", "auto_reveal", "redeem_likely_owned"}
-    store.set_settings({k: v for k, v in data.items() if k in allowed})
+               "rate_limit_wait_min", "auto_reveal", "redeem_likely_owned", "tray"}
+    updates = {}
+    for k, v in data.items():
+        if k not in allowed:
+            continue
+        if k in _NUMERIC_SETTINGS:
+            lo, hi = _NUMERIC_SETTINGS[k]
+            try:
+                v = min(hi, max(lo, float(v)))
+            except (TypeError, ValueError):
+                return jsonify({"ok": False,
+                                "message": f"{k} must be a number."}), 400
+        elif k in ("auto_reveal", "redeem_likely_owned", "tray"):
+            v = "1" if str(v) in ("1", "true", "True") else "0"
+        else:
+            v = str(v).strip()
+        updates[k] = v
+    store.set_settings(updates)
     return jsonify({"ok": True})
 
 
@@ -271,8 +387,156 @@ def api_keys_reset():
     return jsonify({"ok": True, "count": count})
 
 
+@app.get("/api/update")
+def api_update():
+    """Update status merged with the user's silence preference.
+
+    `show` / `emergency_show` are computed here so the UI stays dumb:
+      - silence 'forever'     — never show a normal banner again
+      - silence 'until_next'  — quiet only while the remote head is still the
+                                one that was silenced; a new push re-notifies
+      - emergency             — repo's update_notice.json overrides both
+    """
+    status = update_check.get_status(force=request.args.get("refresh") == "1")
+    settings = store.get_settings()
+    mode = settings.get("update_silence", "")
+    silenced_sha = settings.get("update_silence_sha", "")
+    silenced = (mode == "forever"
+                or (mode == "until_next" and status.get("remote_sha")
+                    and status["remote_sha"] == silenced_sha))
+    notice = status.get("emergency") or {}
+    emergency_show = bool(status.get("ok") and status.get("update_available")
+                          and notice.get("emergency"))
+    show = emergency_show or bool(status.get("ok")
+                                  and status.get("update_available")
+                                  and not silenced)
+    return jsonify({**status, "silence_mode": mode, "silenced": bool(silenced),
+                    "show": show, "emergency_show": emergency_show,
+                    "repo_url": update_check.REPO_URL})
+
+
+@app.post("/api/update/silence")
+def api_update_silence():
+    mode = (request.get_json(force=True) or {}).get("mode", "")
+    if mode == "off":
+        mode = ""
+    if mode not in ("", "until_next", "forever"):
+        return jsonify({"ok": False, "message": "Bad mode."}), 400
+    status = update_check.get_status()
+    store.set_settings({"update_silence": mode,
+                        "update_silence_sha": status.get("remote_sha") or ""})
+    return jsonify({"ok": True, "mode": mode})
+
+
+@app.post("/api/shutdown")
+def api_shutdown():
+    """Graceful quit from the UI: refuses while a job runs unless forced."""
+    force = bool((request.get_json(silent=True) or {}).get("force"))
+    if runner.snapshot()["running"] and not force:
+        return jsonify({"ok": False,
+                        "message": "A job is running — cancel it first."}), 409
+
+    def _exit_soon():
+        time.sleep(0.4)  # let this response reach the browser
+        icon = _TRAY.get("icon")
+        if icon is not None:
+            try:
+                icon.visible = False
+                icon.stop()
+            except Exception:
+                pass
+        _cleanup()
+        os._exit(0)
+
+    threading.Thread(target=_exit_soon, daemon=True).start()
+    return jsonify({"ok": True, "message": "Shutting down."})
+
+
+# ---------------- system tray (Windows) ----------------
+
+_TRAY: dict = {"icon": None}
+
+
+def _make_tray():
+    """Build the tray icon, or None if pystray/Pillow aren't usable here.
+    With the tray, closing the browser tab just 'minimizes' the app: it keeps
+    running by the clock, and Open/Quit live in the icon's menu."""
+    try:
+        import pystray
+        from PIL import Image
+    except Exception:
+        return None
+    try:
+        img = Image.open(os.path.join(STATIC_DIR, "icon-64.png"))
+    except Exception:
+        return None
+    url = f"http://{HOST}:{PORT}"
+
+    def _open(icon=None, item=None):
+        webbrowser.open(url)
+
+    def _quit(icon, item):
+        icon.visible = False
+        icon.stop()  # unblocks icon.run() in main; cleanup happens there
+
+    try:
+        return pystray.Icon(
+            "HumbleRedeemer", img, f"Humble Steam Key Redeemer — {url}",
+            pystray.Menu(
+                pystray.MenuItem("Open dashboard", _open, default=True),
+                pystray.MenuItem("Quit", _quit),
+            ))
+    except Exception:
+        return None
+
+
+def _port_in_use():
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.settimeout(0.5)
+        return s.connect_ex((HOST, PORT)) == 0
+
+
+def _serve():
+    app.run(host=HOST, port=PORT, debug=False, threaded=True)
+
+
 if __name__ == "__main__":
+    if _port_in_use():
+        # Second launch: don't crash with a bind traceback — just bring up
+        # the already-running app (or tell the user who's squatting the port).
+        print(f"Port {PORT} is already in use — the app looks like it's "
+              f"already running. Opening http://{HOST}:{PORT} …\n"
+              f"(If something else owns the port, set APP_PORT to another "
+              f"number and relaunch.)")
+        if not os.environ.get("APP_NO_BROWSER"):
+            webbrowser.open(f"http://{HOST}:{PORT}")
+        sys.exit(0)
+
     print(f"Humble Steam Key Redeem...er — open http://{HOST}:{PORT}")
     if not os.environ.get("APP_NO_BROWSER"):
         threading.Timer(1.0, lambda: webbrowser.open(f"http://{HOST}:{PORT}")).start()
-    app.run(host=HOST, port=PORT, debug=False, threaded=True)
+
+    # Tray mode (default on where pystray works): the server runs by the
+    # clock; closing the browser tab leaves it running, quit from the icon.
+    use_tray = os.environ.get(
+        "APP_TRAY", store.get_settings().get("tray", "1")) == "1"
+    tray_icon = _make_tray() if use_tray else None
+    _TRAY["icon"] = tray_icon
+
+    if tray_icon is not None:
+        threading.Thread(target=_serve, daemon=True).start()
+        print("Running in the system tray — right-click the key icon to quit.")
+        try:
+            tray_icon.run()  # blocks main thread until Quit
+        except KeyboardInterrupt:
+            pass
+        finally:
+            _cleanup()
+        sys.exit(0)
+
+    try:
+        _serve()
+    except KeyboardInterrupt:
+        pass
+    finally:
+        _cleanup()

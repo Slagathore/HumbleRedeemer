@@ -94,12 +94,13 @@ class HumbleClient:
     def _ensure_driver(self):
         if self._driver is not None:
             return self._driver
+        from .driverutil import chrome_service, firefox_service
         drivers = [
-            (webdriver.Chrome, webdriver.ChromeOptions),
-            (webdriver.Firefox, webdriver.FirefoxOptions),
+            (webdriver.Chrome, webdriver.ChromeOptions, chrome_service),
+            (webdriver.Firefox, webdriver.FirefoxOptions, firefox_service),
         ]
         errors = []
-        for d, opt in drivers:
+        for d, opt, service in drivers:
             try:
                 options = opt()
                 if d == webdriver.Chrome:
@@ -111,7 +112,7 @@ class HumbleClient:
                 else:
                     options.add_argument("-headless")
                     options.set_preference("general.useragent.override", USER_AGENT)
-                self._driver = d(options=options)
+                self._driver = d(options=options, service=service())
                 self._driver.set_script_timeout(300)
                 return self._driver
             except WebDriverException as e:
@@ -131,13 +132,26 @@ class HumbleClient:
                 self._driver = None
                 self._logged_in = False
 
+    def _driver_crashed(self, err):
+        """The headless browser died mid-call (Chrome update, OOM, killed
+        process). Drop it so the next call starts a fresh one and restores
+        the session from cookies, instead of failing forever until restart."""
+        self.shutdown()
+        first = str(err).splitlines()[0] if str(err) else err.__class__.__name__
+        return RuntimeError(
+            "The Humble browser session crashed and was reset — try the same "
+            f"action again; your sign-in restores from saved cookies. ({first})")
+
     def _post(self, url, payload):
         driver = self._ensure_driver()
         json_payload = b64encode(json.dumps(payload).encode("utf-8")).decode("ascii")
-        csrf = driver.get_cookie("csrf_cookie")
-        csrf = csrf["value"] if csrf else ""
-        script = FETCH_POST_JS.format(formData=json_payload, url=url, csrf=csrf)
-        return driver.execute_async_script(script)
+        try:
+            csrf = driver.get_cookie("csrf_cookie")
+            csrf = csrf["value"] if csrf else ""
+            script = FETCH_POST_JS.format(formData=json_payload, url=url, csrf=csrf)
+            return driver.execute_async_script(script)
+        except WebDriverException as e:
+            raise self._driver_crashed(e) from e
 
     # ---------------- session ----------------
 
@@ -247,7 +261,10 @@ class HumbleClient:
         script = GET_ORDERS_JS.replace("%gamekeys%", json.dumps(gamekeys or []))
         with self._lock:
             driver = self._ensure_driver()
-            return driver.execute_async_script(script)
+            try:
+                return driver.execute_async_script(script)
+            except WebDriverException as e:
+                raise self._driver_crashed(e) from e
 
     def get_requests_session(self):
         """A requests.Session carrying the browser's Humble cookies — used for

@@ -158,3 +158,5 @@ dmypy.json
 .humblecookies
 # personal outreach notes
 OUTREACH.md
+# app runtime log (windowless mode)
+app.log

@@ -15,6 +15,8 @@
 2. Run it — the dashboard opens at `http://127.0.0.1:5757` in whatever browser you use (Chrome, Firefox, Opera GX, anything).
 3. Sign in to Humble and Steam from the header chips (2FA/Steam Guard supported), then hit **▶ Full auto run**.
 
+On Windows the app lives in the **system tray** (blue key icon by the clock): closing the browser tab just "minimizes" it — the app keeps running in the background, and reopening `http://127.0.0.1:5757` (or double-clicking the tray icon) brings it right back. Quit from the tray icon's menu or the ⏻ chip in the dashboard. Prefer a plain console window instead? Untick *Run in the system tray* in Settings.
+
 The Humble/GOG automation runs in a separate hidden browser using Chrome or Firefox; if neither is installed, Selenium usually downloads a private copy of Chrome automatically. macOS builds are unsigned — right-click → Open the first time.
 
 ## What it does
@@ -29,6 +31,7 @@ The Humble/GOG automation runs in a separate hidden browser using Chrome or Fire
 - **Attention page** — everything that can't auto-redeem: other-store keys with where-to-redeem links, dead keys with the Steam error decoded, expired keys, and the weird non-game stuff
 - **GOG support** — library sync, ownership skip, and browser-driven redemption
 - **Library browser** — search and filter all your keys by state, with bulk reveal/redeem/reset
+- **Runs in the system tray** (Windows) — close the tab, it keeps working; update banners tell you when a newer version is on GitHub
 
 <details>
 <summary><b>📸 More screenshots</b></summary>
@@ -50,9 +53,15 @@ The Humble/GOG automation runs in a separate hidden browser using Chrome or Fire
 
 </details>
 
+## Updates
+
+The app checks this GitHub repo once at launch (a read-only fetch of public repo info — nothing about you is sent) and shows a banner when newer code has been pushed. You can silence it per-update ("remind me when the *next* one lands") or forever, from the banner or Settings → Updates.
+
+**Emergency releases** override silencing: if [`update_notice.json`](update_notice.json) in this repo has `emergency: true`, every running app that's behind shows a red banner with that notice's title/message explaining why the update can't wait (security fixes, breakage that could waste keys). It disappears as soon as you're up to date. Set `APP_NO_UPDATE_CHECK=1` to disable all update checking.
+
 ## Privacy
 
-**Everything is 100% local.** No server, no accounts, no telemetry, no data collection. Your logins are stored as session cookies in local files (`.humblecookies`, `.steamcookies`, `.gogcookies`), and your keys/history live in a local SQLite database (`redeemer.db`) next to the app. The only network connections it ever makes are to Humble Bundle, Steam, and GOG — acting as you, on your machine, for you. Delete the cookie files to sign out; delete `redeemer.db` to wipe all history.
+**Everything is 100% local.** No server, no accounts, no telemetry, no data collection. Your logins are stored as session cookies in local files (`.humblecookies`, `.steamcookies`, `.gogcookies`), and your keys/history live in a local SQLite database (`redeemer.db`) next to the app. The only network connections it ever makes are to Humble Bundle, Steam, and GOG — acting as you, on your machine, for you — plus a read-only GitHub version check at launch (disable with `APP_NO_UPDATE_CHECK=1`). Delete the cookie files to sign out; delete `redeemer.db` to wipe all history.
 
 ## Disclaimer
 
@@ -67,7 +76,7 @@ pip install -r requirements.txt
 python app.py
 ```
 
-Optional: `pip install python-Levenshtein` makes the fuzzy matching faster.
+On Windows, `run_app.bat` launches it windowless in the system tray (output goes to `app.log`); `run_app_debug.bat` keeps a console window with live logs. Optional: `pip install python-Levenshtein` makes the fuzzy matching faster.
 
 ## Support
 

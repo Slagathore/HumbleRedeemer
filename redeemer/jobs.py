@@ -50,6 +50,14 @@ class JobRunner:
     def cancel(self):
         self._cancel.set()
 
+    def stop(self, timeout=5):
+        """Cancel and wait briefly for the worker — used on app shutdown so
+        we don't yank the process out from under a half-written key result."""
+        self._cancel.set()
+        thread = self._thread
+        if thread is not None and thread.is_alive():
+            thread.join(timeout)
+
     def snapshot(self):
         with self._lock:
             snap = dict(self.status)
@@ -293,6 +301,22 @@ class JobRunner:
 
             self._say(f"Redeeming {key['human_name']}...")
             code, msg = self.steam.redeem_key(key_val)
+
+            # code None = session died / Steam replied garbage, NOT a verdict
+            # on the key. Reconnect once; if that fails, stop the run without
+            # touching this or later keys (they'd all be falsely 'errored').
+            if code is None:
+                self._say(f"Steam session hiccup ({msg}) — reconnecting...")
+                if self.steam.try_cookie_login():
+                    code, msg = self.steam.redeem_key(key_val)
+            if code is None:
+                self.store.log_event("redeem_steam", key["gamekey"],
+                                     key["machine_name"], key["human_name"],
+                                     detail=msg, result_label="session_lost")
+                self._say(f"Steam session is gone ({msg}) — stopping. "
+                          f"{key['human_name']} and the keys after it were "
+                          "NOT marked; sign in to Steam and run Redeem again.")
+                break
 
             while code == 53 and not self._cancel.is_set():
                 until = time.time() + wait_min * 60
@@ -565,6 +589,16 @@ class JobRunner:
                 break
             self._progress(i + 1, len(keys))
             code, msg = self.steam.redeem_key(key["redeemed_key_val"])
+
+            # session death is not a key verdict — don't reclassify the spare
+            if code is None:
+                self._say(f"Steam session hiccup ({msg}) — reconnecting...")
+                if self.steam.try_cookie_login():
+                    code, msg = self.steam.redeem_key(key["redeemed_key_val"])
+            if code is None:
+                self._say(f"Steam session is gone ({msg}) — stopping; "
+                          f"{key['human_name']} was left untouched.")
+                break
 
             while code == 53 and not self._cancel.is_set():
                 until = time.time() + wait_min * 60

@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Humble Steam Key Redeemer</title>
+<link rel="icon" href="/favicon.ico">
 <style>
 :root {
   --surface-1: #fcfcfb;
@@ -143,6 +144,21 @@ dialog input {
 .msg { font-size: 12.5px; color: var(--ink-2); min-height: 16px; }
 .msg.err { color: var(--critical); }
 .section-note { color: var(--ink-muted); font-size: 12.5px; margin: 4px 0 14px; }
+#update-banner {
+  display: none; align-items: center; flex-wrap: wrap; gap: 10px;
+  padding: 9px 22px; font-size: 13.5px; border-bottom: 1px solid var(--border);
+  background: color-mix(in srgb, var(--accent) 13%, var(--page));
+}
+#update-banner.urgent {
+  background: var(--critical); color: #fff; font-weight: 600;
+}
+#update-banner.urgent a, #update-banner.urgent .btn { color: inherit; }
+#update-banner .btn { padding: 3px 10px; font-size: 12.5px; }
+#update-banner .dismiss {
+  margin-left: auto; cursor: pointer; opacity: .65; font-size: 16px;
+  background: none; border: none; color: inherit; padding: 0 4px;
+}
+#update-banner .dismiss:hover { opacity: 1; }
 </style>
 </head>
 <body>
@@ -159,8 +175,10 @@ dialog input {
     <span class="chip" id="chip-humble" onclick="openLogin('humble')"><span class="dot" id="dot-humble"></span>Humble</span>
     <span class="chip" id="chip-steam" onclick="openLogin('steam')"><span class="dot" id="dot-steam"></span>Steam</span>
     <span class="chip" id="chip-gog" onclick="loginGog()" title="Opens a browser window on this PC to sign in"><span class="dot" id="dot-gog"></span>GOG</span>
+    <span class="chip" onclick="quitApp()" title="Shut the app down cleanly (closes its background browsers too)">⏻ Quit</span>
   </div>
 </header>
+<div id="update-banner"></div>
 <main>
 
 <!-- ======================= DASHBOARD ======================= -->
@@ -333,9 +351,29 @@ dialog input {
         Auto-reveal unrevealed keys when redeeming (removes gift-link option for those keys)</label>
       <label class="check"><input type="checkbox" id="s-likely">
         Also redeem “likely owned” matches without review (not recommended)</label>
+      <label class="check"><input type="checkbox" id="s-tray">
+        Run in the system tray (Windows) — closing the browser tab leaves the app running
+        by the clock; quit from the tray icon or the ⏻ chip. Takes effect at next launch.</label>
       <div><button class="btn primary" type="submit">Save settings</button>
         <span class="msg" id="settings-msg"></span></div>
     </form>
+  </div>
+  <div class="card" style="max-width:640px; margin-top:14px">
+    <h3>Updates</h3>
+    <p class="section-note">The app checks GitHub once at launch (read-only, nothing sent) and
+      shows a banner when the repo has newer code. Emergency notices — fixes you really
+      shouldn't skip — always show, regardless of the choice below.</p>
+    <div id="upd-status" class="mini" style="margin-bottom:10px">Checking…</div>
+    <div class="actions" style="margin-bottom:10px">
+      <button class="btn" onclick="checkUpdate(true, true)">Check now</button>
+      <a class="btn" id="upd-link" href="#" target="_blank" style="display:none">View on GitHub</a>
+    </div>
+    <label class="check"><input type="radio" name="upd-mode" value="" onchange="silenceUpdate(this.value)">
+      Notify me when an update is available (recommended)</label>
+    <label class="check"><input type="radio" name="upd-mode" value="until_next" onchange="silenceUpdate(this.value)">
+      Silence the current update — remind me when the <i>next</i> one lands</label>
+    <label class="check"><input type="radio" name="upd-mode" value="forever" onchange="silenceUpdate(this.value)">
+      Never show update banners (emergency notices still appear)</label>
   </div>
   <div class="card" style="max-width:640px; margin-top:14px">
     <h3>Privacy</h3>
@@ -343,7 +381,9 @@ dialog input {
       Everything runs and stays on your machine. Your logins are kept as session cookies in
       local files (<code>.humblecookies</code>, <code>.steamcookies</code>, <code>.gogcookies</code>),
       your keys and history live in a local database (<code>redeemer.db</code>), and the only
-      servers this app ever contacts are Humble Bundle, Steam, and GOG — acting as you, for you.
+      servers this app ever contacts are Humble Bundle, Steam, and GOG — acting as you, for you —
+      plus a read-only version check against this project's GitHub page at launch (it downloads
+      public repo info; it never sends anything about you).
       No telemetry, no analytics, no accounts, no data collection of any kind.
     </p>
     <p class="section-note" style="margin:10px 0 0">
@@ -957,6 +997,8 @@ function fillSettings() {
   $("#s-ratewait").value = s.rate_limit_wait_min || 30;
   $("#s-autoreveal").checked = s.auto_reveal === "1";
   $("#s-likely").checked = s.redeem_likely_owned === "1";
+  $("#s-tray").checked = (s.tray ?? "1") === "1";
+  renderUpdateCard();
 }
 async function saveSettings(e) {
   e.preventDefault();
@@ -969,9 +1011,106 @@ async function saveSettings(e) {
       rate_limit_wait_min: $("#s-ratewait").value,
       auto_reveal: $("#s-autoreveal").checked ? "1" : "0",
       redeem_likely_owned: $("#s-likely").checked ? "1" : "0",
+      tray: $("#s-tray").checked ? "1" : "0",
     }) });
   $("#settings-msg").textContent = "Saved ✓";
   setTimeout(() => $("#settings-msg").textContent = "", 2500);
+}
+
+/* ---------------- updates ---------------- */
+let updateInfo = null, updateTimer = null;
+
+async function checkUpdate(refresh, fromButton) {
+  if (fromButton) $("#upd-status").textContent = "Checking…";
+  try {
+    const r = await fetch("/api/update" + (refresh ? "?refresh=1" : ""));
+    updateInfo = await r.json();
+  } catch (e) { updateInfo = null; }
+  renderUpdateBanner();
+  renderUpdateCard();
+  clearTimeout(updateTimer);                       // re-check twice a day
+  updateTimer = setTimeout(() => checkUpdate(true), 12 * 3600 * 1000);
+}
+
+function updDismissKey() {
+  const em = updateInfo.emergency_show ? "em:" + ((updateInfo.emergency || {}).id || "") : "";
+  return "upd-dismiss:" + (updateInfo.remote_sha || "") + ":" + em;
+}
+
+function renderUpdateBanner() {
+  const b = $("#update-banner");
+  if (!updateInfo || !updateInfo.show || sessionStorage.getItem(updDismissKey())) {
+    b.style.display = "none"; return;
+  }
+  const link = `<a class="btn" href="${esc(updateInfo.repo_url)}" target="_blank">View &amp; download</a>`;
+  if (updateInfo.emergency_show) {
+    const n = updateInfo.emergency || {};
+    b.className = "urgent";
+    b.innerHTML = `⚠ <b>${esc(n.title || "Urgent update required")}</b> —
+      ${esc(n.message || "A critical fix was published. Please update as soon as possible.")}
+      ${link}
+      <button class="dismiss" title="Hide until the app is next opened" onclick="dismissUpdateBanner()">✕</button>`;
+  } else {
+    const behind = updateInfo.behind_by;
+    const what = behind ? `${behind} new change${behind === 1 ? "" : "s"}` : "new code";
+    const last = updateInfo.remote_message ? ` — latest: “${esc(updateInfo.remote_message)}”` : "";
+    b.className = "";
+    b.innerHTML = `⬆ <b>Update available</b> (${what} on GitHub${last})
+      ${link}
+      <button class="btn" onclick="silenceUpdate('until_next')" title="Hide this update; the banner returns when a newer one is pushed">Silence until next update</button>
+      <button class="btn" onclick="silenceUpdate('forever')" title="Never show update banners again (emergency notices still appear)">Don't show again</button>
+      <button class="dismiss" title="Hide for now" onclick="dismissUpdateBanner()">✕</button>`;
+  }
+  b.style.display = "flex";
+}
+
+function dismissUpdateBanner() {
+  sessionStorage.setItem(updDismissKey(), "1");
+  $("#update-banner").style.display = "none";
+}
+
+async function silenceUpdate(mode) {
+  await fetch("/api/update/silence", { method: "POST", headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({ mode }) });
+  await checkUpdate(false);
+}
+
+function renderUpdateCard() {
+  const el = $("#upd-status");
+  if (!el) return;
+  if (!updateInfo) { el.textContent = "Update check failed (offline?) — will retry later."; return; }
+  if (!updateInfo.ok) { el.textContent = "Update check failed: " + (updateInfo.error || "unknown error"); }
+  else if (updateInfo.update_available) {
+    const behind = updateInfo.behind_by ? ` (${updateInfo.behind_by} behind)` : "";
+    el.innerHTML = `⬆ <b>Update available</b>${behind}` +
+      (updateInfo.recent_changes || []).slice(0, 5).map(m => `<br>· ${esc(m)}`).join("");
+  } else {
+    el.textContent = `✓ Up to date — checked ${updateInfo.checked_at}` +
+      (updateInfo.remote_message ? ` · latest: “${updateInfo.remote_message}”` : "");
+  }
+  const link = $("#upd-link");
+  link.href = updateInfo.repo_url || "#";
+  link.style.display = updateInfo.repo_url ? "" : "none";
+  const mode = updateInfo.silence_mode || "";
+  document.querySelectorAll('input[name="upd-mode"]').forEach(r => r.checked = (r.value === mode));
+}
+
+/* ---------------- quit ---------------- */
+async function quitApp() {
+  let force = false;
+  if (state && state.job && state.job.running) {
+    if (!confirm("A job is running — cancel it and quit anyway?\nProgress on finished keys is already saved.")) return;
+    force = true;
+  } else if (!confirm("Quit the app?")) return;
+  try {
+    const r = await fetch("/api/shutdown", { method: "POST", headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({ force }) });
+    const j = await r.json();
+    if (!j.ok) { alert(j.message); return; }
+  } catch (e) { /* server may drop the connection while exiting */ }
+  document.body.innerHTML =
+    "<div style='padding:70px 20px;text-align:center;font:15px system-ui;color:#888'>" +
+    "✅ App closed. You can close this tab.</div>";
 }
 
 /* ---------------- logins ---------------- */
@@ -1023,6 +1162,7 @@ async function loginSteam(e) {
 poll();
 loadActivity();
 loadGames();
+checkUpdate(false);   // scan-on-load: cached from the server's startup check
 </script>
 </body>
 </html>

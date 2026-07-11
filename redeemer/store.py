@@ -24,6 +24,12 @@ DEFAULT_SETTINGS = {
     "rate_limit_wait_min": "30",
     "auto_reveal": "1",
     "redeem_likely_owned": "0",
+    # update notifications: "" = notify, "until_next" = quiet until a NEWER
+    # push lands, "forever" = never notify (emergencies still break through)
+    "update_silence": "",
+    "update_silence_sha": "",
+    # run in the system tray (Windows) — applied at next launch
+    "tray": "1",
 }
 
 SCHEMA = """

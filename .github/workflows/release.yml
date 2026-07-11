@@ -17,14 +17,20 @@ jobs:
             sep: ";"
             artifact: HumbleRedeemer-windows
             binary: HumbleRedeemer.exe
+            # windowed tray app with the key icon; helper consoles stay hidden
+            buildflags: >-
+              --windowed --icon static/icon.ico
+              --hidden-import pystray --hidden-import pystray._win32
           - os: macos-latest
             sep: ":"
             artifact: HumbleRedeemer-macos
             binary: HumbleRedeemer
+            buildflags: "--console"
           - os: ubuntu-latest
             sep: ":"
             artifact: HumbleRedeemer-linux
             binary: HumbleRedeemer
+            buildflags: "--console"
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -38,7 +44,8 @@ jobs:
 
       - name: Build
         run: >
-          pyinstaller --noconfirm --onefile --name HumbleRedeemer --console
+          pyinstaller --noconfirm --onefile --name HumbleRedeemer
+          ${{ matrix.buildflags }}
           --add-data "static${{ matrix.sep }}static"
           --collect-all selenium --collect-submodules steam
           --hidden-import fuzzywuzzy app.py
@@ -74,6 +81,13 @@ jobs:
             dashboard opens at http://127.0.0.1:5757 (view it in any browser).
             The hidden automation browser uses Chrome or Firefox; Selenium
             usually downloads a private copy of Chrome if neither is installed.
+
+            On Windows the app lives in the **system tray** (blue key icon by
+            the clock): closing the browser tab leaves it running; right-click
+            the icon to reopen the dashboard or quit. Troubleshooting output
+            goes to `app.log` next to the exe. The app checks this repo for
+            updates at launch and shows a banner in the dashboard when a newer
+            release exists (silence it per-update or forever in Settings).
 
             Everything is 100% local and private — see the README's Privacy
             and Disclaimer sections.
