@@ -58,8 +58,10 @@ def _code_version():
     """Newest mtime across the source files — shown in the UI so a stale
     running process (old code in memory) is immediately visible."""
     if FROZEN:
-        return "build " + time.strftime(
+        stamp = time.strftime(
             "%Y-%m-%d %H:%M", time.localtime(os.path.getmtime(sys.executable)))
+        tag = update_check.build_tag()  # release tag stamped in by CI
+        return f"{tag} ({stamp})" if tag else "build " + stamp
     files = ["app.py", "static/index.html"] + glob.glob("redeemer/*.py")
     stamps = [os.path.getmtime(f) for f in files if os.path.exists(f)]
     if not stamps:

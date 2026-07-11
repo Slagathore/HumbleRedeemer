@@ -20,6 +20,7 @@ jobs:
             # windowed tray app with the key icon; helper consoles stay hidden
             buildflags: >-
               --windowed --icon static/icon.ico
+              --version-file version_info.txt
               --hidden-import pystray --hidden-import pystray._win32
           - os: macos-latest
             sep: ":"
@@ -42,6 +43,37 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt pyinstaller
 
+      - name: Stamp release version
+        shell: bash
+        # baked into the build; the in-app update check compares this tag
+        # against the newest GitHub release
+        run: echo "$GITHUB_REF_NAME" > static/version.txt
+
+      - name: Windows version resource
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          V="${GITHUB_REF_NAME#v}"
+          IFS=. read -r A B C _ <<< "$V.0"
+          cat > version_info.txt <<EOF
+          VSVersionInfo(
+            ffi=FixedFileInfo(
+              filevers=(${A:-0}, ${B:-0}, ${C:-0}, 0),
+              prodvers=(${A:-0}, ${B:-0}, ${C:-0}, 0),
+              mask=0x3f, flags=0x0, OS=0x40004, fileType=0x1,
+              subtype=0x0, date=(0, 0)),
+            kids=[
+              StringFileInfo([StringTable('040904B0', [
+                StringStruct('CompanyName', 'Slagathore'),
+                StringStruct('FileDescription', 'Humble Steam Key Redeemer'),
+                StringStruct('FileVersion', '$V'),
+                StringStruct('ProductName', 'Humble Steam Key Redeemer'),
+                StringStruct('ProductVersion', '$V'),
+                StringStruct('LegalCopyright', 'MIT License'),
+                StringStruct('OriginalFilename', 'HumbleRedeemer.exe')])]),
+              VarFileInfo([VarStruct('Translation', [1033, 1200])])])
+          EOF
+
       - name: Build
         run: >
           pyinstaller --noconfirm --onefile --name HumbleRedeemer
@@ -49,6 +81,33 @@ jobs:
           --add-data "static${{ matrix.sep }}static"
           --collect-all selenium --collect-submodules steam
           --hidden-import fuzzywuzzy app.py
+
+      # Signs dist/HumbleRedeemer.exe with Azure Trusted Signing, so Windows
+      # stops warning about an unknown publisher. Skipped (release still
+      # works, just unsigned) until these repo secrets are configured:
+      #   AZURE_TENANT_ID        — Entra tenant id
+      #   AZURE_CLIENT_ID        — app registration (client) id
+      #   AZURE_CLIENT_SECRET    — client secret for that app
+      #   AZURE_SIGNING_ENDPOINT — e.g. https://eus.codesigning.azure.net
+      #   AZURE_SIGNING_ACCOUNT  — Trusted Signing account name
+      #   AZURE_CERT_PROFILE     — certificate profile name
+      # The app registration needs the "Trusted Signing Certificate Profile
+      # Signer" role on the signing account.
+      - name: Sign Windows exe (Azure Trusted Signing)
+        if: runner.os == 'Windows' && secrets.AZURE_TENANT_ID != ''
+        uses: azure/trusted-signing-action@v2
+        with:
+          azure-tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          azure-client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          azure-client-secret: ${{ secrets.AZURE_CLIENT_SECRET }}
+          endpoint: ${{ secrets.AZURE_SIGNING_ENDPOINT }}
+          trusted-signing-account-name: ${{ secrets.AZURE_SIGNING_ACCOUNT }}
+          certificate-profile-name: ${{ secrets.AZURE_CERT_PROFILE }}
+          files-folder: ${{ github.workspace }}\dist
+          files-folder-filter: exe
+          file-digest: SHA256
+          timestamp-rfc3161: http://timestamp.acs.microsoft.com
+          timestamp-digest: SHA256
 
       - name: Package
         shell: bash

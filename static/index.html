@@ -1042,7 +1042,7 @@ function renderUpdateBanner() {
   if (!updateInfo || !updateInfo.show || sessionStorage.getItem(updDismissKey())) {
     b.style.display = "none"; return;
   }
-  const link = `<a class="btn" href="${esc(updateInfo.repo_url)}" target="_blank">View &amp; download</a>`;
+  const link = `<a class="btn" href="${esc(updateInfo.download_url || updateInfo.repo_url)}" target="_blank">View &amp; download</a>`;
   if (updateInfo.emergency_show) {
     const n = updateInfo.emergency || {};
     b.className = "urgent";
@@ -1052,10 +1052,13 @@ function renderUpdateBanner() {
       <button class="dismiss" title="Hide until the app is next opened" onclick="dismissUpdateBanner()">✕</button>`;
   } else {
     const behind = updateInfo.behind_by;
-    const what = behind ? `${behind} new change${behind === 1 ? "" : "s"}` : "new code";
-    const last = updateInfo.remote_message ? ` — latest: “${esc(updateInfo.remote_message)}”` : "";
+    const what = updateInfo.channel === "release"
+      ? `${esc(updateInfo.remote_sha)} is out` + (updateInfo.local_sha ? ` — you're on ${esc(updateInfo.local_sha)}` : "")
+      : (behind ? `${behind} new change${behind === 1 ? "" : "s"} on GitHub` : "new code on GitHub");
+    const last = updateInfo.channel !== "release" && updateInfo.remote_message
+      ? ` — latest: “${esc(updateInfo.remote_message)}”` : "";
     b.className = "";
-    b.innerHTML = `⬆ <b>Update available</b> (${what} on GitHub${last})
+    b.innerHTML = `⬆ <b>Update available</b> (${what}${last})
       ${link}
       <button class="btn" onclick="silenceUpdate('until_next')" title="Hide this update; the banner returns when a newer one is pushed">Silence until next update</button>
       <button class="btn" onclick="silenceUpdate('forever')" title="Never show update banners again (emergency notices still appear)">Don't show again</button>
@@ -1081,16 +1084,18 @@ function renderUpdateCard() {
   if (!updateInfo) { el.textContent = "Update check failed (offline?) — will retry later."; return; }
   if (!updateInfo.ok) { el.textContent = "Update check failed: " + (updateInfo.error || "unknown error"); }
   else if (updateInfo.update_available) {
-    const behind = updateInfo.behind_by ? ` (${updateInfo.behind_by} behind)` : "";
-    el.innerHTML = `⬆ <b>Update available</b>${behind}` +
+    const what = updateInfo.channel === "release"
+      ? ` — ${esc(updateInfo.remote_sha)}` : (updateInfo.behind_by ? ` (${updateInfo.behind_by} behind)` : "");
+    el.innerHTML = `⬆ <b>Update available</b>${what}` +
       (updateInfo.recent_changes || []).slice(0, 5).map(m => `<br>· ${esc(m)}`).join("");
   } else {
+    const latest = updateInfo.channel === "release" ? updateInfo.remote_sha : updateInfo.remote_message;
     el.textContent = `✓ Up to date — checked ${updateInfo.checked_at}` +
-      (updateInfo.remote_message ? ` · latest: “${updateInfo.remote_message}”` : "");
+      (latest ? ` · latest: “${latest}”` : "");
   }
   const link = $("#upd-link");
-  link.href = updateInfo.repo_url || "#";
-  link.style.display = updateInfo.repo_url ? "" : "none";
+  link.href = updateInfo.download_url || updateInfo.repo_url || "#";
+  link.style.display = (updateInfo.download_url || updateInfo.repo_url) ? "" : "none";
   const mode = updateInfo.silence_mode || "";
   document.querySelectorAll('input[name="upd-mode"]').forEach(r => r.checked = (r.value === mode));
 }

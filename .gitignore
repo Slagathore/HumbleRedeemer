@@ -160,3 +160,6 @@ dmypy.json
 OUTREACH.md
 # app runtime log (windowless mode)
 app.log
+# CI build stamps (never committed)
+static/version.txt
+version_info.txt
