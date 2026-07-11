@@ -33,6 +33,9 @@ jobs:
             binary: HumbleRedeemer
             buildflags: "--console"
     runs-on: ${{ matrix.os }}
+    env:
+      # secrets can't be referenced in `if:` expressions — indirect via env
+      HAS_SIGNING: ${{ secrets.AZURE_TENANT_ID != '' }}
     steps:
       - uses: actions/checkout@v4
 
@@ -97,7 +100,7 @@ jobs:
       # role name no longer exists). Until secrets exist, releases are signed
       # locally via build_release.ps1 + `gh release upload --clobber`.
       - name: Sign Windows exe (Azure Artifact Signing)
-        if: runner.os == 'Windows' && secrets.AZURE_TENANT_ID != ''
+        if: runner.os == 'Windows' && env.HAS_SIGNING == 'true'
         uses: azure/trusted-signing-action@v2
         with:
           azure-tenant-id: ${{ secrets.AZURE_TENANT_ID }}
