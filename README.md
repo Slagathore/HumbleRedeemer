@@ -17,7 +17,7 @@
 
 On Windows the app lives in the **system tray** (blue key icon by the clock): closing the browser tab just "minimizes" it — the app keeps running in the background, and reopening `http://127.0.0.1:5757` (or double-clicking the tray icon) brings it right back. Quit from the tray icon's menu or the ⏻ chip in the dashboard. Prefer a plain console window instead? Untick *Run in the system tray* in Settings.
 
-The Humble/GOG automation runs in a separate hidden browser using Chrome or Firefox; if neither is installed, Selenium usually downloads a private copy of Chrome automatically. macOS builds are unsigned — right-click → Open the first time.
+The Humble/GOG automation runs in a separate hidden browser using Chrome or Firefox; if neither is installed, Selenium usually downloads a private copy of Chrome automatically. Windows builds are code-signed (publisher: Charles Chambers). macOS builds are unsigned — right-click → Open the first time.
 
 ## What it does
 
