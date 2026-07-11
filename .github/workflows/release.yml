@@ -82,18 +82,21 @@ jobs:
           --collect-all selenium --collect-submodules steam
           --hidden-import fuzzywuzzy app.py
 
-      # Signs dist/HumbleRedeemer.exe with Azure Trusted Signing, so Windows
+      # Signs dist/HumbleRedeemer.exe with Azure Artifact Signing, so Windows
       # stops warning about an unknown publisher. Skipped (release still
-      # works, just unsigned) until these repo secrets are configured:
+      # works, just unsigned) until these repo secrets are configured —
+      # account details live in Cole's CODE-SIGNING-PLAYBOOK.md (see SIGNING.md):
       #   AZURE_TENANT_ID        — Entra tenant id
-      #   AZURE_CLIENT_ID        — app registration (client) id
-      #   AZURE_CLIENT_SECRET    — client secret for that app
-      #   AZURE_SIGNING_ENDPOINT — e.g. https://eus.codesigning.azure.net
-      #   AZURE_SIGNING_ACCOUNT  — Trusted Signing account name
-      #   AZURE_CERT_PROFILE     — certificate profile name
-      # The app registration needs the "Trusted Signing Certificate Profile
-      # Signer" role on the signing account.
-      - name: Sign Windows exe (Azure Trusted Signing)
+      #   AZURE_CLIENT_ID        — service principal (client) id
+      #   AZURE_CLIENT_SECRET    — client secret for that principal
+      #   AZURE_SIGNING_ENDPOINT — https://cus.codesigning.azure.net
+      #   AZURE_SIGNING_ACCOUNT  — signing account name (Slagathores-Apps)
+      #   AZURE_CERT_PROFILE     — certificate profile name (public)
+      # The principal needs the "Artifact Signing Certificate Profile Signer"
+      # role on the signing account (the pre-rebrand "Trusted Signing ..."
+      # role name no longer exists). Until secrets exist, releases are signed
+      # locally via build_release.ps1 + `gh release upload --clobber`.
+      - name: Sign Windows exe (Azure Artifact Signing)
         if: runner.os == 'Windows' && secrets.AZURE_TENANT_ID != ''
         uses: azure/trusted-signing-action@v2
         with:

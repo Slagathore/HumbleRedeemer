@@ -163,3 +163,6 @@ app.log
 # CI build stamps (never committed)
 static/version.txt
 version_info.txt
+# local signed-release artifacts (build_release.ps1)
+pkg/
+HumbleRedeemer-windows.zip
