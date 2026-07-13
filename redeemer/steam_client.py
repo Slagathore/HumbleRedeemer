@@ -4,13 +4,14 @@ Login is GUI-driven (username/password posted to the API; Steam Guard code on a
 second call). Sessions persist to the same .steamcookies file the original
 script used.
 """
-import pickle
 import re
 import threading
 import time
 
 import requests
 import steam.webauth as wa
+
+from .cookie_store import load_cookie_dict, save_cookie_dict
 
 STEAM_KEYS_PAGE = "https://store.steampowered.com/account/registerkey"
 STEAM_LICENSES_PAGE = "https://store.steampowered.com/account/licenses/"
@@ -87,12 +88,11 @@ class SteamClient:
 
     def try_cookie_login(self):
         with self._lock:
-            try:
-                cookies = pickle.load(open(COOKIE_FILE, "rb"))
-            except Exception:
+            cookie_dict = load_cookie_dict(COOKIE_FILE)
+            if cookie_dict is None:
                 return False
             session = requests.Session()
-            session.cookies.update(cookies)
+            session.cookies.update(requests.utils.cookiejar_from_dict(cookie_dict))
             if self._session_valid(session):
                 self._session = session
                 return True
@@ -154,7 +154,7 @@ class SteamClient:
         self._webauth = None
         self._cancel_poller()
         try:
-            pickle.dump(session.cookies, open(COOKIE_FILE, "wb"))
+            save_cookie_dict(COOKIE_FILE, requests.utils.dict_from_cookiejar(session.cookies))
         except Exception:
             pass
         return {"status": "ok", "message": "Signed in to Steam."}

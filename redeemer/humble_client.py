@@ -5,13 +5,14 @@ codes the same way) instead of console prompts. Cookies persist to the same
 .humblecookies file the original script uses, so existing sessions carry over.
 """
 import json
-import pickle
 import threading
 import time
 from base64 import b64encode
 
 from selenium import webdriver
 from selenium.common.exceptions import WebDriverException
+
+from .cookie_store import load_cookie_list, save_cookie_list
 
 HUMBLE_LOGIN_PAGE = "https://www.humblebundle.com/login"
 HUMBLE_KEYS_PAGE = "https://www.humblebundle.com/home/library"
@@ -178,9 +179,8 @@ class HumbleClient:
     def try_cookie_login(self):
         """Attempt to restore a previous session from .humblecookies."""
         with self._lock:
-            try:
-                cookies = pickle.load(open(COOKIE_FILE, "rb"))
-            except Exception:
+            cookies = load_cookie_list(COOKIE_FILE)
+            if not cookies:
                 return False
             driver = self._ensure_driver()
             driver.get(HUMBLE_LOGIN_PAGE)
@@ -248,7 +248,7 @@ class HumbleClient:
             self._pending_payload = None
             self._logged_in = True
             try:
-                pickle.dump(driver.get_cookies(), open(COOKIE_FILE, "wb"))
+                save_cookie_list(COOKIE_FILE, driver.get_cookies())
             except Exception:
                 pass
             return {"status": "ok", "message": "Signed in to Humble."}

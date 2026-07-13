@@ -6,13 +6,13 @@ the page's own invisible-captcha JS does the work. Login opens a VISIBLE
 browser window on this machine — you sign in there (password never touches
 this app) and the session cookies are saved to .gogcookies.
 """
-import pickle
 import threading
 import time
 
 import requests
 from selenium import webdriver
 
+from .cookie_store import load_cookie_list, save_cookie_list
 from .driverutil import chrome_service
 
 GOG_HOME = "https://www.gog.com/en/"
@@ -75,9 +75,8 @@ class GogClient:
 
     def try_cookie_login(self):
         with self._lock:
-            try:
-                cookies = pickle.load(open(COOKIE_FILE, "rb"))
-            except Exception:
+            cookies = load_cookie_list(COOKIE_FILE)
+            if not cookies:
                 return False
             session = self._make_session(cookies)
             if self._session_logged_in(session):
@@ -164,7 +163,7 @@ class GogClient:
             with self._lock:
                 self._session = session
             try:
-                pickle.dump(cookies, open(COOKIE_FILE, "wb"))
+                save_cookie_list(COOKIE_FILE, cookies)
             except Exception:
                 pass
             self.login_state = {"status": "ok", "message": "Signed in to GOG."}
@@ -215,16 +214,12 @@ class GogClient:
         opts.add_experimental_option("excludeSwitches", ["enable-logging"])
         driver = webdriver.Chrome(options=opts, service=chrome_service())
         driver.get(GOG_HOME)
-        try:
-            cookies = pickle.load(open(COOKIE_FILE, "rb"))
-            for c in cookies:
-                c.pop("sameSite", None)
-                try:
-                    driver.add_cookie(c)
-                except Exception:
-                    pass
-        except Exception:
-            pass
+        for c in load_cookie_list(COOKIE_FILE):
+            c.pop("sameSite", None)
+            try:
+                driver.add_cookie(c)
+            except Exception:
+                pass
         return driver
 
     def _page_text(self, driver):
