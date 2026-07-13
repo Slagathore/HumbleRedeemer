@@ -1,7 +1,7 @@
-flask>=3.0
-fuzzywuzzy>=0.17.0
-requests>=2.25.1
-selenium>=4.10.0
+flask==3.0.2
+fuzzywuzzy==0.18.0
+requests==2.31.0
+selenium==4.22.0
 steam @ git+https://github.com/FailSpy/steam-py-lib@3db3cfe04fb16fc9c212244d96c86b5164905c82 # patched steam python library using changes from artur1214 until fixed on main repo; pinned to master HEAD as of 2026-07-13, was a floating @master ref
-pystray>=0.19 ; sys_platform == "win32"  # system-tray mode
-pillow>=10 ; sys_platform == "win32"     # tray icon image
+pystray==0.19.5 ; sys_platform == "win32"  # system-tray mode
+pillow==12.2.0 ; sys_platform == "win32"     # tray icon image

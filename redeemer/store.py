@@ -255,6 +255,10 @@ class Store:
         if not fields:
             return
         fields["updated_at"] = now()
+        # fields' keys become raw SQL column identifiers here (f-string, not
+        # a placeholder). Safe today because every caller passes explicit
+        # kwargs it wrote itself -- never unpack an external/user dict into
+        # this call (**user_dict), that would reopen identifier injection.
         cols = ", ".join(f"{k}=?" for k in fields)
         with self._lock:
             self._conn.execute(
