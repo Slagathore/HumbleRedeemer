@@ -78,3 +78,33 @@ python -m zipfile -c ..\HumbleRedeemer-windows.zip .
 Pop-Location
 Remove-Item -Recurse -Force pkg
 Write-Host "Done: dist\HumbleRedeemer.exe + HumbleRedeemer-windows.zip ($Tag)"
+
+# ---- 5) installer (skips cleanly if Inno Setup isn't installed) ----
+$iscc = "C:\Users\Cole\AppData\Local\Programs\Inno Setup 6\ISCC.exe"
+if (Test-Path $iscc) {
+    & $iscc "/DAppVersion=$V" "/DSourceExe=$PSScriptRoot\dist\HumbleRedeemer.exe" "packaging\installer.iss"
+    if ($LASTEXITCODE) { throw "ISCC failed" }
+    $setupExe = "dist\HumbleRedeemer-$V-Setup.exe"
+    if (-not $SkipSign) {
+        $env:DOTNET_SYSTEM_NET_DISABLEIPV6 = '1'
+        $env:PATH = "C:\Program Files\Microsoft SDKs\Azure\CLI2\wbin;$env:PATH"
+        Invoke-TrustedSigning `
+            -Endpoint 'https://cus.codesigning.azure.net/' `
+            -CodeSigningAccountName 'Slagathores-Apps' `
+            -CertificateProfileName 'public' `
+            -Files "$PSScriptRoot\$setupExe" `
+            -TimestampRfc3161 'http://timestamp.acs.microsoft.com' `
+            -TimestampDigest 'SHA256' -FileDigest 'SHA256' `
+            -ExcludeEnvironmentCredential -ExcludeWorkloadIdentityCredential `
+            -ExcludeManagedIdentityCredential -ExcludeSharedTokenCacheCredential `
+            -ExcludeVisualStudioCredential -ExcludeVisualStudioCodeCredential `
+            -ExcludeAzurePowerShellCredential -ExcludeAzureDeveloperCliCredential `
+            -ExcludeInteractiveBrowserCredential
+        $setupSig = Get-AuthenticodeSignature $setupExe
+        Write-Host "Installer signature: $($setupSig.Status) — $($setupSig.SignerCertificate.Subject)"
+        if ($setupSig.Status -ne 'Valid') { throw "Installer signature not valid: $($setupSig.StatusMessage)" }
+    }
+    Write-Host "Done: $setupExe ($Tag)"
+} else {
+    Write-Host "Inno Setup not found at $iscc, skipping installer build."
+}

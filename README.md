@@ -11,7 +11,7 @@
 
 ## Quick start
 
-1. Download the [latest release](../../releases/latest) for your OS (Windows `.exe`, macOS zip, Linux tar.gz). No install, no Python needed.
+1. Download the [latest release](../../releases/latest) for your OS (Windows `.exe`, macOS zip, Linux tar.gz). No install, no Python needed. On Windows you can grab the portable `HumbleRedeemer.exe` or run `HumbleRedeemer-<version>-Setup.exe` for a proper Start Menu install with an uninstaller.
 2. Run it. The dashboard opens at `http://127.0.0.1:5757` in whatever browser you use (Chrome, Firefox, Opera GX, anything).
 3. Sign in to Humble and Steam from the header chips (2FA/Steam Guard supported), then hit **▶ Full auto run**.
 
