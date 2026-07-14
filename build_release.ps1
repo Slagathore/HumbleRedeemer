@@ -108,3 +108,24 @@ if (Test-Path $iscc) {
 } else {
     Write-Host "Inno Setup not found at $iscc, skipping installer build."
 }
+
+# ---- 6) checksums ----
+# The in-app updater checks a downloaded installer against this file before it
+# runs anything (redeemer/update_install.py), so it has to be attached to the
+# release alongside the assets it covers.
+$assets = @("dist\HumbleRedeemer.exe", "HumbleRedeemer-windows.zip")
+if (Test-Path "dist\HumbleRedeemer-$V-Setup.exe") { $assets += "dist\HumbleRedeemer-$V-Setup.exe" }
+$lines = foreach ($a in $assets) {
+    $h = (Get-FileHash -Algorithm SHA256 $a).Hash.ToLower()
+    "$h  $(Split-Path -Leaf $a)"
+}
+$lines -join "`n" | Out-File -Encoding ascii -NoNewline SHA256SUMS.txt
+Write-Host "Done: SHA256SUMS.txt"
+Write-Host ""
+Write-Host "Upload the signed assets and their checksums to the release:"
+Write-Host "  gh release upload $Tag dist\HumbleRedeemer.exe HumbleRedeemer-windows.zip SHA256SUMS.txt --clobber"
+if (Test-Path "dist\HumbleRedeemer-$V-Setup.exe") {
+    Write-Host "  gh release upload $Tag dist\HumbleRedeemer-$V-Setup.exe --clobber"
+    Write-Host "  (the Setup exe is what in-app updates download -- a release without it"
+    Write-Host "   makes the updater tell users to download by hand instead.)"
+}

@@ -364,8 +364,11 @@ dialog input {
       shows a banner when the repo has newer code. Emergency notices — fixes you really
       shouldn't skip — always show, regardless of the choice below.</p>
     <div id="upd-status" class="mini" style="margin-bottom:10px">Checking…</div>
+    <div id="upd-install" class="mini" style="margin-bottom:10px; display:none"></div>
     <div class="actions" style="margin-bottom:10px">
       <button class="btn" onclick="checkUpdate(true, true)">Check now</button>
+      <button class="btn primary" id="upd-install-btn" style="display:none" onclick="startInstall()">Download update</button>
+      <button class="btn primary" id="upd-run-btn" style="display:none" onclick="runInstall()">Install and restart</button>
       <a class="btn" id="upd-link" href="#" target="_blank" style="display:none">View on GitHub</a>
     </div>
     <label class="check"><input type="radio" name="upd-mode" value="" onchange="silenceUpdate(this.value)">
@@ -1018,18 +1021,93 @@ async function saveSettings(e) {
 }
 
 /* ---------------- updates ---------------- */
-let updateInfo = null, updateTimer = null;
+let updateInfo = null, updateTimer = null, installInfo = null, installTimer = null;
 
 async function checkUpdate(refresh, fromButton) {
   if (fromButton) $("#upd-status").textContent = "Checking…";
   try {
     const r = await fetch("/api/update" + (refresh ? "?refresh=1" : ""));
     updateInfo = await r.json();
+    installInfo = updateInfo.install || null;
   } catch (e) { updateInfo = null; }
   renderUpdateBanner();
   renderUpdateCard();
+  renderInstall();
   clearTimeout(updateTimer);                       // re-check twice a day
   updateTimer = setTimeout(() => checkUpdate(true), 12 * 3600 * 1000);
+}
+
+/* The install pipeline reports exactly where it is, and nothing else. There
+   is no "installed" state here: the app is gone by then. */
+async function pollInstall() {
+  try {
+    const r = await fetch("/api/update/install");
+    installInfo = await r.json();
+  } catch (e) { /* keep the last known state rather than inventing one */ }
+  renderInstall();
+  renderUpdateBanner();
+  clearTimeout(installTimer);
+  if (installInfo && ["checking", "downloading", "verifying"].includes(installInfo.state)) {
+    installTimer = setTimeout(pollInstall, 700);
+  }
+}
+
+async function startInstall() {
+  try {
+    const r = await fetch("/api/update/install", { method: "POST" });
+    installInfo = await r.json();
+  } catch (e) {
+    installInfo = { state: "failed", message: "Couldn't reach the app's own server." };
+  }
+  renderInstall();
+  renderUpdateBanner();
+  pollInstall();
+}
+
+async function runInstall() {
+  if (!installInfo || installInfo.state !== "ready") return;
+  if (!confirm("Install the update now?\n\nThe app will close, the installer will run, "
+             + "and the app reopens when it's done. Your keys, history and sign-ins are "
+             + "kept outside the program folder, so they're not touched.")) return;
+  let force = false;
+  if (state && state.job && state.job.running) {
+    if (!confirm("A job is running — cancel it and install anyway?")) return;
+    force = true;
+  }
+  try {
+    const r = await fetch("/api/update/install/run", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ force }) });
+    installInfo = await r.json();
+  } catch (e) {
+    installInfo = { state: "failed", message: "Couldn't start the installer." };
+  }
+  renderInstall();
+  renderUpdateBanner();
+}
+
+function installLine() {
+  if (!installInfo) return "";
+  const s = installInfo.state, msg = installInfo.message || "";
+  if (s === "idle" || s === "unsupported") return "";
+  if (s === "failed") return "✕ Update failed: " + (installInfo.error || msg || "unknown reason");
+  if (s === "ready") return "✓ " + msg;
+  return "… " + msg;
+}
+
+function renderInstall() {
+  const box = $("#upd-install"), dl = $("#upd-install-btn"), run = $("#upd-run-btn");
+  if (!box) return;
+  const line = installLine();
+  box.textContent = line;
+  box.style.display = line ? "" : "none";
+  const s = installInfo ? installInfo.state : "idle";
+  const busy = ["checking", "downloading", "verifying", "installing"].includes(s);
+  const offerDownload = !!(updateInfo && updateInfo.can_install && updateInfo.update_available
+                           && !busy && s !== "ready");
+  dl.style.display = offerDownload ? "" : "none";
+  dl.textContent = s === "failed" ? "Try the download again" : "Download update";
+  run.style.display = (s === "ready") ? "" : "none";
 }
 
 function updDismissKey() {
@@ -1043,11 +1121,30 @@ function renderUpdateBanner() {
     b.style.display = "none"; return;
   }
   const link = `<a class="btn" href="${esc(updateInfo.download_url || updateInfo.repo_url)}" target="_blank">View &amp; download</a>`;
+  // The install button only exists where an install can actually happen (the
+  // packaged Windows build). Source runs get the honest git pull line instead.
+  const s = installInfo ? installInfo.state : "idle";
+  let action = "";
+  if (updateInfo.can_install) {
+    if (s === "ready") {
+      action = `<button class="btn" onclick="runInstall()">Install and restart</button>`;
+    } else if (["checking", "downloading", "verifying", "installing"].includes(s)) {
+      action = `<span>${esc(installInfo.message || "Working…")}</span>`;
+    } else if (s === "failed") {
+      action = `<span>Update failed: ${esc(installInfo.error || "unknown reason")}</span>
+        <button class="btn" onclick="startInstall()">Try again</button>`;
+    } else {
+      action = `<button class="btn" onclick="startInstall()">Update now</button>`;
+    }
+  } else if (updateInfo.install_note) {
+    action = `<span>${esc(updateInfo.install_note)}</span>`;
+  }
   if (updateInfo.emergency_show) {
     const n = updateInfo.emergency || {};
     b.className = "urgent";
     b.innerHTML = `⚠ <b>${esc(n.title || "Urgent update required")}</b> —
       ${esc(n.message || "A critical fix was published. Please update as soon as possible.")}
+      ${action}
       ${link}
       <button class="dismiss" title="Hide until the app is next opened" onclick="dismissUpdateBanner()">✕</button>`;
   } else {
@@ -1059,6 +1156,7 @@ function renderUpdateBanner() {
       ? ` — latest: “${esc(updateInfo.remote_message)}”` : "";
     b.className = "";
     b.innerHTML = `⬆ <b>Update available</b> (${what}${last})
+      ${action}
       ${link}
       <button class="btn" onclick="silenceUpdate('until_next')" title="Hide this update; the banner returns when a newer one is pushed">Silence until next update</button>
       <button class="btn" onclick="silenceUpdate('forever')" title="Never show update banners again (emergency notices still appear)">Don't show again</button>
@@ -1086,8 +1184,11 @@ function renderUpdateCard() {
   else if (updateInfo.update_available) {
     const what = updateInfo.channel === "release"
       ? ` — ${esc(updateInfo.remote_sha)}` : (updateInfo.behind_by ? ` (${updateInfo.behind_by} behind)` : "");
+    const how = updateInfo.can_install
+      ? `<br>The download is checked against the release's SHA256 and its Windows signature before anything runs.`
+      : (updateInfo.install_note ? `<br>${esc(updateInfo.install_note)}` : "");
     el.innerHTML = `⬆ <b>Update available</b>${what}` +
-      (updateInfo.recent_changes || []).slice(0, 5).map(m => `<br>· ${esc(m)}`).join("");
+      (updateInfo.recent_changes || []).slice(0, 5).map(m => `<br>· ${esc(m)}`).join("") + how;
   } else {
     const latest = updateInfo.channel === "release" ? updateInfo.remote_sha : updateInfo.remote_message;
     el.textContent = `✓ Up to date — checked ${updateInfo.checked_at}` +

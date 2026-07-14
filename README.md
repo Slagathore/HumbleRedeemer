@@ -61,7 +61,13 @@ The app checks this GitHub repo once at launch (a read-only fetch of public repo
 
 ## Privacy
 
-**Everything runs locally.** No server, no accounts, no telemetry, no data collection. Your logins are stored as session cookies in local files (`.humblecookies`, `.steamcookies`, `.gogcookies`), and your keys/history live in a local SQLite database (`redeemer.db`) next to the app. The only network connections it ever makes are to Humble Bundle, Steam, and GOG, acting as you, on your machine, for you, plus a read-only GitHub version check at launch (disable with `APP_NO_UPDATE_CHECK=1`). Delete the cookie files to sign out; delete `redeemer.db` to wipe all history.
+**Everything runs locally.** No server, no accounts, no telemetry, no data collection. Your logins are stored as session cookies in local files (`.humblecookies`, `.steamcookies`, `.gogcookies`), and your keys/history live in a local SQLite database (`redeemer.db`). If you ran the installer, those files live in `%LOCALAPPDATA%\HumbleRedeemer`, which is deliberately outside the program folder so updating the app can never touch them. If you run the portable exe or from source, they sit next to the app as before, and the app moves them for you if you later switch to the installer. Set `HUMBLEREDEEMER_DATA` to put them anywhere you like. The only network connections it ever makes are to Humble Bundle, Steam, and GOG, acting as you, on your machine, for you, plus a read-only GitHub version check at launch (disable with `APP_NO_UPDATE_CHECK=1`). Delete the cookie files to sign out; delete `redeemer.db` to wipe all history.
+
+## Updates
+
+The installed Windows build can update itself. When the banner says a new release is out, hit **Update now**: it downloads that release's installer, checks it against the release's published SHA256 and against the Authenticode signature Windows sees on it (publisher: Charles Chambers), and only then offers to run it. A download that fails either check is deleted, not run, and the banner tells you why. The app closes while the installer works and reopens on its own afterwards. Your keys, history and sign-ins are not in the program folder, so they survive the whole thing.
+
+Running from source, or the portable exe? There is nothing to install for you, so the app says so and points you at `git pull` or the releases page instead of pretending.
 
 ## Disclaimer
 

@@ -55,6 +55,10 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 [Tasks]
 Name: "desktopicon"; Description: "Create a &desktop icon"; GroupDescription: "Additional icons:"; Flags: unchecked
 
+; The program folder holds the exe and nothing else. User data (redeemer.db,
+; the cookie files, app.log) lives in {localappdata}\HumbleRedeemer -- see
+; redeemer/paths.py -- so installing, updating and uninstalling never touch
+; your keys, history or sign-ins.
 [Files]
 Source: "{#SourceExe}"; DestDir: "{app}"; DestName: "HumbleRedeemer.exe"; Flags: ignoreversion
 
@@ -65,3 +69,6 @@ Name: "{autodesktop}\HumbleRedeemer"; Filename: "{app}\HumbleRedeemer.exe"; Task
 
 [Run]
 Filename: "{app}\HumbleRedeemer.exe"; Description: "Launch HumbleRedeemer"; Flags: nowait postinstall skipifsilent
+; In-app updates run this installer with /SILENT, so there's no wizard page to
+; tick "launch the app" on. Bring the app back up ourselves in that case.
+Filename: "{app}\HumbleRedeemer.exe"; Flags: nowait postinstall; Check: WizardSilent

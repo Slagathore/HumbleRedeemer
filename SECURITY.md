@@ -27,11 +27,25 @@ system, no backend service, and nobody but you runs this app against your accoun
   machine, for you, plus a read only check of this GitHub repo at launch for update
   notifications. Set `APP_NO_UPDATE_CHECK=1` to turn that off. Nothing else phones home. No
   telemetry, no analytics, no third party server in between.
+- **Updates.** The installed Windows build can download and run a new installer, which means it
+  can execute code it fetched off the internet. That only happens after both of these pass, in
+  `redeemer/update_install.py`: the file's SHA256 matches the `SHA256SUMS.txt` published with
+  the release, and Windows itself reports the file's Authenticode signature as Valid with the
+  project's signing certificate on it (`CN=Charles Chambers`). A download that is unsigned,
+  tampered with, or signed by anyone else is deleted without being run, and the installer is
+  never launched from any state other than "verified". There is no setting that skips this, and
+  transport is HTTPS to GitHub throughout. If a release has no checksums file, the signature
+  check still has to pass on its own, and the app says that is what happened. Source and
+  portable runs never download or execute anything, they are told to update by hand.
 
 ## Secrets and local storage
 
+- These files live in `%LOCALAPPDATA%\HumbleRedeemer` for the installed build, and next to the
+  app for the portable exe and source runs (`redeemer/paths.py`, override with
+  `HUMBLEREDEEMER_DATA`). Keeping them out of the program folder is what lets an update replace
+  the app without ever writing over your keys, history or sessions.
 - `.humblecookies`, `.steamcookies`, and `.gogcookies` hold live session cookies for each
-  store. They're read and written as JSON next to the app (gitignored), not unpickled, so a
+  store. They're read and written as JSON (gitignored), not unpickled, so a
   corrupted or planted cookie file can't run code when the app tries to restore a session with
   it, it just fails to load and you sign in again.
 - `redeemer.db` (SQLite, also gitignored) holds your key inventory: titles, the actual key

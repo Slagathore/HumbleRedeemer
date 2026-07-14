@@ -15,12 +15,21 @@ import webbrowser
 from flask import Flask, jsonify, request, send_from_directory
 
 # PyInstaller bundle support: static assets live in the unpack dir, while the
-# database/cookies should live next to the .exe so the app stays portable.
+# database/cookies live in the data dir. For the portable exe and source runs
+# that's still right next to the app; for the installed build it's
+# %LOCALAPPDATA%\HumbleRedeemer, which no install or uninstall step touches,
+# so updating the app can never take your keys and sessions with it.
+# See redeemer/paths.py.
+from redeemer import paths
+
 FROZEN = getattr(sys, "frozen", False)
 if FROZEN:
-    os.chdir(os.path.dirname(sys.executable))
+    DATA_DIR = paths.ensure(paths.data_dir())
+    paths.migrate_from(paths.program_dir(), DATA_DIR)
+    os.chdir(DATA_DIR)
     STATIC_DIR = os.path.join(getattr(sys, "_MEIPASS", "."), "static")
 else:
+    DATA_DIR = os.getcwd()
     STATIC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
 
 # Windowless mode (pythonw / --windowed build): stdout doesn't exist, so keep
@@ -49,6 +58,7 @@ from redeemer.gog_client import GogClient
 from redeemer.jobs import JobRunner
 from redeemer import attention
 from redeemer import update_check
+from redeemer import update_install
 
 HOST = "127.0.0.1"
 PORT = int(os.environ.get("APP_PORT", "5757"))
@@ -412,9 +422,57 @@ def api_update():
     show = emergency_show or bool(status.get("ok")
                                   and status.get("update_available")
                                   and not silenced)
+    can_install, install_note = update_install.supported()
     return jsonify({**status, "silence_mode": mode, "silenced": bool(silenced),
                     "show": show, "emergency_show": emergency_show,
+                    "can_install": can_install, "install_note": install_note,
+                    "install": update_install.status(),
                     "repo_url": update_check.REPO_URL})
+
+
+@app.get("/api/update/install")
+def api_update_install_status():
+    """Where the install attempt actually is: idle / checking / downloading /
+    verifying / ready / installing / failed. Nothing here ever reports
+    progress the download hasn't made."""
+    can_install, note = update_install.supported()
+    return jsonify({**update_install.status(),
+                    "can_install": can_install, "install_note": note})
+
+
+@app.post("/api/update/install")
+def api_update_install():
+    """Download the release's installer and verify it. Does not run it --
+    that's a separate, explicit step, and it's only allowed once this one has
+    proved the download's checksum and signature."""
+    can_install, note = update_install.supported()
+    if not can_install:
+        return jsonify({"ok": False, "state": "unsupported", "message": note,
+                        "can_install": False, "install_note": note}), 400
+    return jsonify({"ok": True, **update_install.start(), "can_install": True})
+
+
+@app.post("/api/update/install/run")
+def api_update_install_run():
+    """Launch the verified installer and quit so it can replace the exe."""
+    can_install, note = update_install.supported()
+    if not can_install:
+        return jsonify({"ok": False, "message": note}), 400
+    force = bool((request.get_json(silent=True) or {}).get("force"))
+    if runner.snapshot()["running"] and not force:
+        return jsonify({"ok": False,
+                        "message": "A job is running — cancel it first."}), 409
+    try:
+        state = update_install.launch()
+    except update_install.VerificationError as e:
+        return jsonify({"ok": False, "message": str(e),
+                        **update_install.status()}), 409
+    except Exception as e:
+        message = f"Couldn't start the installer ({e.__class__.__name__})."
+        update_install._fail(message)
+        return jsonify({"ok": False, "message": message}), 500
+    _exit_soon(1.5)  # give Inno time to come up before we drop the process
+    return jsonify({"ok": True, **state})
 
 
 @app.post("/api/update/silence")
@@ -430,16 +488,11 @@ def api_update_silence():
     return jsonify({"ok": True, "mode": mode})
 
 
-@app.post("/api/shutdown")
-def api_shutdown():
-    """Graceful quit from the UI: refuses while a job runs unless forced."""
-    force = bool((request.get_json(silent=True) or {}).get("force"))
-    if runner.snapshot()["running"] and not force:
-        return jsonify({"ok": False,
-                        "message": "A job is running — cancel it first."}), 409
-
-    def _exit_soon():
-        time.sleep(0.4)  # let this response reach the browser
+def _exit_soon(delay=0.4):
+    """Quit the process in the background, after the current response has had
+    time to reach the browser."""
+    def _go():
+        time.sleep(delay)
         icon = _TRAY.get("icon")
         if icon is not None:
             try:
@@ -450,7 +503,17 @@ def api_shutdown():
         _cleanup()
         os._exit(0)
 
-    threading.Thread(target=_exit_soon, daemon=True).start()
+    threading.Thread(target=_go, daemon=True).start()
+
+
+@app.post("/api/shutdown")
+def api_shutdown():
+    """Graceful quit from the UI: refuses while a job runs unless forced."""
+    force = bool((request.get_json(silent=True) or {}).get("force"))
+    if runner.snapshot()["running"] and not force:
+        return jsonify({"ok": False,
+                        "message": "A job is running — cancel it first."}), 409
+    _exit_soon()
     return jsonify({"ok": True, "message": "Shutting down."})
 
 
