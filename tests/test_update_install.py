@@ -138,6 +138,37 @@ def test_verify_refuses_someone_elses_certificate(tmp_path, monkeypatch):
         ui.verify(path, ui.sha256_file(path))
 
 
+def test_verify_refuses_our_name_hidden_in_another_field(tmp_path, monkeypatch):
+    """The publisher check is anchored to the CN. A cert whose CN is somebody
+    else but whose O (or anywhere else in the subject) contains our name must
+    not pass -- a substring match would have let this through."""
+    path = _installer(tmp_path)
+    monkeypatch.setattr(ui, "authenticode", _signature(
+        "Valid", "CN=Totally Legit LLC, O=Charles Chambers, C=US"))
+    with pytest.raises(ui.VerificationError, match="signed by someone else"):
+        ui.verify(path, ui.sha256_file(path))
+
+
+def test_verify_refuses_our_name_as_a_substring_of_the_cn(tmp_path, monkeypatch):
+    path = _installer(tmp_path)
+    monkeypatch.setattr(ui, "authenticode", _signature(
+        "Valid", "CN=Charles Chambers Impersonator, O=x, C=US"))
+    with pytest.raises(ui.VerificationError, match="signed by someone else"):
+        ui.verify(path, ui.sha256_file(path))
+
+
+def test_subject_cn_parsing():
+    assert ui.subject_cn(
+        "CN=Charles Chambers, O=Charles Chambers, L=Arlington, S=tx, C=US"
+    ) == "Charles Chambers"
+    # our name only in O, not CN
+    assert ui.subject_cn("CN=Evil, O=Charles Chambers, C=US") == "Evil"
+    # escaped comma inside the CN value is part of the name
+    assert ui.subject_cn(r"CN=Chambers\, Charles, C=US") == "Chambers, Charles"
+    assert ui.subject_cn("O=No CN here, C=US") is None
+    assert ui.subject_cn("") is None
+
+
 def test_verify_still_demands_a_signature_when_no_checksum_is_published(
         tmp_path, monkeypatch):
     path = _installer(tmp_path)
@@ -175,9 +206,12 @@ def test_launch_refuses_a_download_that_only_claims_to_be_ready(tmp_path, popen)
     assert not popen.launched
 
 
-def test_launch_runs_the_verified_installer_silently(tmp_path, popen):
+def test_launch_runs_the_verified_installer_silently(tmp_path, popen, monkeypatch):
     path = _installer(tmp_path)
-    ui._set(state="ready", path=path, verified="SHA256 and Authenticode")
+    sha = ui.sha256_file(path)
+    monkeypatch.setattr(ui, "authenticode", _signature("Valid"))
+    ui._set(state="ready", path=path, verified="SHA256 and Authenticode",
+            expected_sha=sha)
     state = ui.launch()
     assert popen.calls == [ui.install_command(path)]
     assert popen.calls[0][0] == path
@@ -185,6 +219,43 @@ def test_launch_runs_the_verified_installer_silently(tmp_path, popen):
     assert state["state"] == "installing"
     # never claims the install finished -- the app is about to die
     assert "installed" not in state["message"].lower()
+
+
+def test_launch_reverifies_the_exact_file_and_refuses_a_swap(
+        tmp_path, popen, monkeypatch):
+    """TOCTOU: the file verified earlier, then something rewrote it in the
+    user-writable cache before we could run it. The re-check at launch must
+    catch that, refuse, and delete -- not execute the bytes that are there
+    now on the strength of a check that guarded different bytes."""
+    path = _installer(tmp_path, body=b"the verified installer")
+    good_sha = ui.sha256_file(path)
+    monkeypatch.setattr(ui, "authenticode", _signature("Valid"))
+    ui._set(state="ready", path=path,
+            verified="SHA256 checksum and Authenticode signature (Charles Chambers)",
+            expected_sha=good_sha)
+
+    # the swap: same path, different bytes, after the "ready" verification
+    with open(path, "wb") as f:
+        f.write(b"a malicious payload dropped in the cache dir")
+
+    with pytest.raises(ui.VerificationError):
+        ui.launch()
+    assert not popen.launched
+    assert not os.path.exists(path)          # the swapped file is deleted
+    assert ui.status()["state"] == "failed"
+
+
+def test_launch_reverifies_signature_and_refuses_if_it_no_longer_holds(
+        tmp_path, popen, monkeypatch):
+    path = _installer(tmp_path)
+    sha = ui.sha256_file(path)
+    ui._set(state="ready", path=path, verified="ok", expected_sha=sha)
+    # hash still matches, but Windows now reports the signature is bad
+    monkeypatch.setattr(ui, "authenticode", _signature("HashMismatch"))
+
+    with pytest.raises(ui.VerificationError):
+        ui.launch()
+    assert not popen.launched
 
 
 # ---------------- the whole pipeline ----------------

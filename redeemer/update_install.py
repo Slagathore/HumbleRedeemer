@@ -58,6 +58,7 @@ _state = {
     "asset": "",
     "path": "",
     "verified": "",        # what actually passed, only set once it has
+    "expected_sha": None,  # remembered so launch() can re-verify the exact file
     "error": "",
     "download_url": DOWNLOAD_URL,
 }
@@ -81,7 +82,7 @@ def _set(**fields):
 
 def _reset():
     _set(state="idle", message="", progress=0, asset="", path="",
-         verified="", error="", download_url=DOWNLOAD_URL)
+         verified="", expected_sha=None, error="", download_url=DOWNLOAD_URL)
 
 
 def _fail(message):
@@ -180,6 +181,36 @@ def authenticode(path):
     return lines[0], (lines[1] if len(lines) > 1 else "")
 
 
+def subject_cn(subject):
+    """The CN value out of an X.500 subject string like
+    ``CN=Charles Chambers, O=Charles Chambers, C=US``. Returns None if there
+    is no CN. Respects backslash-escaped commas inside a value, so this is the
+    actual Common Name, not "the text CN= happens to be followed by".
+
+    This is deliberately anchored: an attacker who puts our name in their O,
+    OU or anywhere else in the subject must not slip past the publisher check.
+    """
+    if not subject:
+        return None
+    m = re.search(r"(?:^|,)\s*CN=", subject, re.I)
+    if not m:
+        return None
+    rest = subject[m.end():]
+    out = []
+    i = 0
+    while i < len(rest):
+        ch = rest[i]
+        if ch == "\\" and i + 1 < len(rest):
+            out.append(rest[i + 1])
+            i += 2
+            continue
+        if ch == ",":
+            break
+        out.append(ch)
+        i += 1
+    return "".join(out).strip().strip('"')
+
+
 def verify(path, expected_sha=None, publisher=EXPECTED_PUBLISHER):
     """Prove the file is ours, or raise VerificationError. Returns a plain
     description of what actually passed, for the UI to show."""
@@ -197,7 +228,8 @@ def verify(path, expected_sha=None, publisher=EXPECTED_PUBLISHER):
     if sig_status != "Valid":
         raise VerificationError(
             f"Windows says the download's signature is \"{sig_status}\".")
-    if publisher.lower() not in (subject or "").lower():
+    cn = subject_cn(subject)
+    if not cn or cn.casefold() != publisher.casefold():
         raise VerificationError(
             "The download is signed by someone else "
             f"({subject or 'unknown signer'}), not {publisher}.")
@@ -305,7 +337,7 @@ def _run_pipeline():
                         if gone else " It was not run."))
         return
 
-    _set(state="ready", path=dest, verified=verified,
+    _set(state="ready", path=dest, verified=verified, expected_sha=expected_sha,
          message=f"Verified {name} ({verified}). Ready to install.")
 
 
@@ -343,6 +375,25 @@ def launch():
     if not os.path.exists(path):
         _fail("The verified installer is gone from the cache. Try again.")
         raise VerificationError("The verified installer is no longer on disk.")
+
+    # Re-verify the exact file we're about to execute, right now. The download
+    # verified earlier, but it has been sitting in a user-writable cache since;
+    # anything that swapped or edited it in that window has to be caught here,
+    # or the earlier check guarded a different set of bytes than the ones we
+    # run. Same path, same expected hash, same signature rules.
+    try:
+        verify(path, snap.get("expected_sha"))
+    except Exception as e:
+        reason = (str(e) if isinstance(e, VerificationError)
+                  else f"Re-check before launch failed ({e.__class__.__name__}: {e}).")
+        gone = True
+        try:
+            os.remove(path)
+        except OSError:
+            gone = False
+        _fail("The installer changed after it was verified, so it was not run"
+              + (" and has been deleted. " if gone else ". ") + reason)
+        raise VerificationError(reason)
 
     flags = _DETACHED_PROCESS | _CREATE_NEW_PROCESS_GROUP if os.name == "nt" else 0
     subprocess.Popen(install_command(path), close_fds=True, creationflags=flags)

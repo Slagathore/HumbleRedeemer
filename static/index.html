@@ -1071,7 +1071,7 @@ async function runInstall() {
              + "kept outside the program folder, so they're not touched.")) return;
   let force = false;
   if (state && state.job && state.job.running) {
-    if (!confirm("A job is running — cancel it and install anyway?")) return;
+    if (!confirm("A job is running. Cancel it and install anyway?")) return;
     force = true;
   }
   try {
