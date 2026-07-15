@@ -4,6 +4,7 @@ Run:  python app.py   (then open http://127.0.0.1:5757)
 """
 import atexit
 import glob
+import json
 import os
 import signal
 import socket
@@ -236,7 +237,8 @@ _NUMERIC_SETTINGS = {
 def api_settings():
     data = request.get_json(force=True) or {}
     allowed = {"steam_api_key", "steam_id_64", "fuzzy_threshold", "per_key_delay",
-               "rate_limit_wait_min", "auto_reveal", "redeem_likely_owned", "tray"}
+               "rate_limit_wait_min", "auto_reveal", "redeem_likely_owned", "tray",
+               "streaming_mode"}
     updates = {}
     for k, v in data.items():
         if k not in allowed:
@@ -248,7 +250,7 @@ def api_settings():
             except (TypeError, ValueError):
                 return jsonify({"ok": False,
                                 "message": f"{k} must be a number."}), 400
-        elif k in ("auto_reveal", "redeem_likely_owned", "tray"):
+        elif k in ("auto_reveal", "redeem_likely_owned", "tray", "streaming_mode"):
             v = "1" if str(v) in ("1", "true", "True") else "0"
         else:
             v = str(v).strip()
@@ -334,7 +336,11 @@ def api_giveaway():
 
 @app.post("/api/keys/give")
 def api_keys_give():
-    """Mark spares as given away (or un-mark), with an optional note of who got it."""
+    """Mark spares as given away (or un-mark), with an optional note of who got it.
+
+    Marking stamps when it happened and freezes the row's status at that
+    moment (given_snapshot), so a later "the key didn't work" dispute can
+    show exactly what we believed when it was handed out."""
     data = request.get_json(force=True) or {}
     ids = data.get("ids") or []
     given = 1 if data.get("given", True) else 0
@@ -343,14 +349,58 @@ def api_keys_give():
         key = store.get_key(key_id)
         if not key:
             continue
+        fields = {"given_away": given, "given_at": ""}
         if note:
-            store.set_key_fields(key_id, given_away=given, notes=note)
-        else:
-            store.set_key_fields(key_id, given_away=given)
+            fields["notes"] = note
+        if given:
+            fields["given_at"] = time.strftime("%Y-%m-%d %H:%M:%S")
+            fields["given_snapshot"] = json.dumps({
+                "redeem_status": key.get("redeem_status", ""),
+                "last_result_code": key.get("last_result_code"),
+                "last_result_label": key.get("last_result_label", ""),
+                "match_status": key.get("match_status", ""),
+                "license_provenance": key.get("license_provenance", ""),
+                "steam_license": key.get("steam_license", ""),
+                "revealed": key.get("revealed", 0),
+                "expires": key.get("expires", ""),
+            })
+        store.set_key_fields(key_id, **fields)
         store.log_event("given_away" if given else "given_away_undone",
                         key["gamekey"], key["machine_name"], key["human_name"],
                         detail=note)
     return jsonify({"ok": True, "count": len(ids)})
+
+
+@app.get("/api/gifts")
+def api_gifts():
+    """Live scan of the Steam gifts inventory (multi-pack extra copies)."""
+    try:
+        sid = store.get_settings().get("steam_id_64", "")
+        gifts = steam.get_gift_inventory(sid)
+        return jsonify({"ok": True, "gifts": gifts})
+    except Exception as e:
+        return jsonify({"ok": False, "message": str(e), "gifts": []})
+
+
+@app.post("/api/keys/manual")
+def api_keys_manual():
+    """Add hand-entered keys (from anywhere) straight to the giveaway list."""
+    data = request.get_json(force=True) or {}
+    entries = data.get("entries") or []
+    added, skipped = store.add_manual_keys(entries)
+    if added:
+        store.log_event("manual_add", detail=f"{added} keys added, {skipped} skipped")
+    return jsonify({"ok": True, "added": added, "skipped": skipped})
+
+
+@app.post("/api/keys/manual/delete")
+def api_keys_manual_delete():
+    data = request.get_json(force=True) or {}
+    n = store.delete_manual_key(data.get("id"))
+    if n:
+        store.log_event("manual_remove", detail=str(data.get("id")))
+    return jsonify({"ok": bool(n),
+                    "message": "" if n else "Only manually added keys can be removed."})
 
 
 @app.post("/api/keys/giftlink")
@@ -493,6 +543,11 @@ def _exit_soon(delay=0.4):
     time to reach the browser."""
     def _go():
         time.sleep(delay)
+        # Cleanup must finish BEFORE the tray stops: stopping the icon
+        # unblocks the main thread, which exits the process and would kill
+        # this thread mid-driver.quit(), orphaning chromedriver — which
+        # inherits our server socket and holds the port hostage.
+        _cleanup()
         icon = _TRAY.get("icon")
         if icon is not None:
             try:
@@ -500,7 +555,6 @@ def _exit_soon(delay=0.4):
                 icon.stop()
             except Exception:
                 pass
-        _cleanup()
         os._exit(0)
 
     threading.Thread(target=_go, daemon=True).start()
@@ -562,7 +616,17 @@ def _port_in_use():
 
 
 def _serve():
-    app.run(host=HOST, port=PORT, debug=False, threaded=True)
+    # make_server instead of app.run so we can mark the listening socket
+    # non-inheritable: werkzeug marks it inheritable for its reloader, and
+    # any child process spawned afterwards (selenium's chromedriver) would
+    # inherit the handle and keep the port bound after we exit.
+    from werkzeug.serving import make_server
+    server = make_server(HOST, PORT, app, threaded=True)
+    try:
+        server.socket.set_inheritable(False)
+    except Exception:
+        pass
+    server.serve_forever()
 
 
 if __name__ == "__main__":

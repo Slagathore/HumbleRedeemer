@@ -302,6 +302,9 @@ dialog input {
       For unrevealed spares, <b>Make gift link</b> creates a Humble gift link — the nicest way to hand one out.
       Entries marked <span class="tag warn">verify first</span> came from old runs where we can't tell
       "you already owned it" apart from "someone else used this key" — test those before promising them.
+      The <b>Ownership</b> column traces how you came to own each game (run <b>Verify licenses</b> to fill it):
+      <span class="tag good">not from a key</span> means this key can't be the one that gave you the game, while
+      <span class="tag warn">could be this key</span> means a product key created that ownership and no record explains which one.
     </p>
   </div>
   <div class="filters">
@@ -309,12 +312,16 @@ dialog input {
     <label class="check" style="font-size:12.5px"><input type="checkbox" id="gshowgiven"> show given-away</label>
   </div>
   <div class="actions" style="margin-bottom:10px">
+    <input type="number" id="rollcount" value="1" min="1" max="50" title="how many games to roll" style="width:64px">
+    <button class="btn primary" onclick="rollSpares()">🎲 Roll random</button>
+    <button class="btn" onclick="dlg('dlg-manual').showModal()" title="add your own keys from outside Humble">+ Add keys</button>
     <button class="btn" onclick="copyAllSpares()">Copy all as text</button>
     <button class="btn" onclick="copyRedditTable()">Copy as Reddit post</button>
     <button class="btn" onclick="copyNamesList()">Copy names only</button>
     <button class="btn" onclick="exportNames()">Export names CSV</button>
     <button class="btn" onclick="emailSpares()">Email selected</button>
-    <button class="btn" onclick="exportSpares()">Export CSV</button>
+    <button class="btn" onclick="exportSpares()" title="good-to-go spares and two-key pairs only">Export CSV</button>
+    <button class="btn" onclick="exportSelected()" title="exports exactly the rows you ticked, from either section">Export selected</button>
     <button class="btn primary" onclick="giveSelected(true)">Mark selected as given</button>
     <button class="btn" onclick="giveSelected(false)">Un-mark selected</button>
     <button class="btn" onclick="verifySpares()" title="Re-attempts each ambiguous key on Steam to learn its true state. Safe, but Steam rate-limits failed attempts to ~10/hour, so this runs for a long time.">Resolve 'verify first' keys (slow)</button>
@@ -323,13 +330,51 @@ dialog input {
   <div class="tablewrap">
     <table id="givetable">
       <thead><tr>
-        <th><input type="checkbox" id="gcheckall"></th>
-        <th>Title</th><th>Key / gift link</th><th>Expires</th><th>Why it's spare</th><th>Given</th><th></th>
+        <th><input type="checkbox" id="gcheckall" title="select all good-to-go spares"></th>
+        <th>Title</th><th>Key / gift link</th><th>Expires</th><th>Why it's spare</th><th>Ownership</th><th>Given</th><th></th>
       </tr></thead>
       <tbody></tbody>
     </table>
   </div>
   <p class="mini" id="givecount"></p>
+
+  <div class="card" id="likelycard" style="margin-top:16px;background:rgba(128,128,128,.09);display:none">
+    <h3 style="color:var(--critical)">Likely redeemed already</h3>
+    <p class="section-note">
+      Steam's license history says these games entered your account through a product key, and no
+      recorded redemption explains which one. Since you held this Humble key before the app started
+      tracking, odds are the "spare" below IS the key that got you the game. These stay out of the
+      good list, its copy/export actions, and the random roller. Games where you hold TWO suspect
+      keys are listed up top instead ("one of these is good") since only one of a pair can be spent.
+      Test on an account that owns the game (or SteamDB's key donation bot) before promising one of
+      these to anyone. Hover a red tag to see the exact license line and date that flagged it.
+    </p>
+    <div class="tablewrap">
+      <table id="givetable2">
+        <thead><tr>
+          <th><input type="checkbox" id="gcheckall2" title="select all likely-redeemed spares"></th>
+          <th>Title</th><th>Key / gift link</th><th>Expires</th><th>Why it's spare</th><th>Ownership</th><th>Given</th><th></th>
+        </tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+    <p class="mini" id="givecount2"></p>
+  </div>
+
+  <div class="card" style="margin-top:16px">
+    <h3>Steam gift copies</h3>
+    <p class="section-note">
+      Extra copies from multi-packs (4-packs of multiplayer games and the like) never exist as
+      keys. Steam parks them in your inventory as gifts, and you send them through Steam itself.
+      The scan lists what's sitting in there right now.
+    </p>
+    <div class="actions">
+      <button class="btn" onclick="loadGifts(this)">Scan Steam inventory</button>
+      <a class="btn" href="https://steamcommunity.com/my/inventory/#753_1" target="_blank"
+         style="text-decoration:none">Open gifts on Steam</a>
+    </div>
+    <div id="giftlist" class="mini" style="margin-top:8px"></div>
+  </div>
 </section>
 
 <!-- ======================= ATTENTION ======================= -->
@@ -366,6 +411,11 @@ dialog input {
       <label class="check"><input type="checkbox" id="s-tray">
         Run in the system tray (Windows) — closing the browser tab leaves the app running
         by the clock; quit from the tray icon or the ⏻ chip. Takes effect at next launch.</label>
+      <label class="check"><input type="checkbox" id="s-streaming">
+        Streaming mode: hide key values and gift links everywhere on screen. Copy buttons
+        still copy the real key, exports still contain them, and the email action puts the
+        key in a downloaded text file you attach, so you can run a giveaway live on stream
+        without a key ever showing.</label>
       <div><button class="btn primary" type="submit">Save settings</button>
         <span class="msg" id="settings-msg"></span></div>
     </form>
@@ -447,6 +497,36 @@ dialog input {
   </form>
 </dialog>
 
+<dialog id="dlg-manual" style="min-width:460px;max-width:680px">
+  <h3>Add keys to give away</h3>
+  <p class="section-note">
+    One per line: game name, then the key or link. <code>:</code>, <code>|</code>, a dash,
+    or just a space all work as separators, e.g.<br>
+    <code>Half-Life 3: AAAAA-BBBBB-CCCCC</code><br>
+    These are your own outside keys. They skip matching and redemption entirely, live in the
+    good-to-go list (tagged "added by you"), and can be rolled, emailed, and marked given
+    like any other spare. Nothing is added if any line can't be parsed.
+  </p>
+  <textarea id="manual-keys" rows="8" style="width:100%;box-sizing:border-box"
+    placeholder="Game name: XXXXX-XXXXX-XXXXX"></textarea>
+  <div class="msg" id="manual-msg"></div>
+  <div class="actions" style="margin-top:10px">
+    <button class="btn primary" onclick="addManualKeys()">Add</button>
+    <button class="btn" type="button" onclick="dlg('dlg-manual').close()">Close</button>
+  </div>
+</dialog>
+
+<dialog id="dlg-roll" style="min-width:420px;max-width:680px">
+  <h3>🎲 Random giveaway roll</h3>
+  <div id="roll-body"></div>
+  <div class="actions" style="margin-top:12px">
+    <button class="btn" onclick="copyRollKeys(this)">Copy key(s)</button>
+    <button class="btn primary" onclick="rollMarkGiven()">Mark as given away</button>
+    <button class="btn" onclick="rollSpares()">Re-roll</button>
+    <button class="btn" type="button" onclick="dlg('dlg-roll').close()">Close</button>
+  </div>
+</dialog>
+
 <div id="tooltip"></div>
 
 <script>
@@ -455,6 +535,13 @@ const $ = s => document.querySelector(s);
 const dlg = id => document.getElementById(id);
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const css = v => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+
+/* Streaming mode: never draw a key value or gift link on screen. Copy
+   buttons keep the real value in data-copy (clipboard is not visible on
+   stream), exports/clipboard keep real values, emails switch to a
+   downloaded text file. */
+const KEY_MASK = "•••••-•••••-•••••";
+const streaming = () => !!(state && state.settings && state.settings.streaming_mode === "1");
 
 let state = null, games = [], filter = "all", selected = new Set(), lastGogLogin = "idle";
 let steamLoginPending = false;  // a Steam login is waiting on Guard approval
@@ -540,7 +627,8 @@ function renderTiles(m) {
     tile(done, "Processed", `${m.redeemed} redeemed · ${m.already_owned} already owned · ${m.errored} errored`
       + (m.license_count ? `<br>${m.license_verified}/${m.redeemed} verified in Steam licenses` : "")) +
     tile(m.steam_library, "Steam library size", m.steam_synced_at ? "synced " + m.steam_synced_at : "not synced yet") +
-    tile(m.spare_keys, "Spare keys to give away", `duplicates of games you own · ${m.given_away} already given`);
+    tile(m.spare_keys - (m.spare_suspect || 0), "Spare keys good to give away",
+      `${m.spare_suspect || 0} more likely redeemed already · ${m.given_away} given`);
 }
 
 /* ---------------- dashboard: pipeline stacked bar ---------------- */
@@ -703,7 +791,9 @@ function renderTable() {
     <td>${g.revealed ? "✓" : `<span class="mini">hidden</span>`}</td>
     <td>${matchCell(g)}</td>
     <td>${statusCell(g)}</td>
-    <td class="mini" style="font-family:Consolas,monospace">${esc(g.redeemed_key_val || "")}</td>
+    <td class="mini" style="font-family:Consolas,monospace">${g.redeemed_key_val
+        ? (streaming() ? `<span title="hidden by streaming mode">${g.redeemed_key_val.startsWith("http") ? "link (hidden)" : KEY_MASK}</span>` : esc(g.redeemed_key_val))
+        : ""}</td>
     <td>${g.service === "Steam" && !g.redeem_status && !g.is_expired
         ? `<button class="btn" style="padding:2px 10px;font-size:11.5px" onclick="redeemOne(${g.id})">redeem</button>` : ""}</td>
   </tr>`).join("");
@@ -751,7 +841,12 @@ async function loadSpares() {
 $("#gsearch").oninput = () => renderSpares();
 $("#gshowgiven").onchange = () => loadSpares();
 $("#gcheckall").onchange = e => {
-  gselected = e.target.checked ? new Set(visibleSpares().map(g => g.id)) : new Set();
+  [...goodSpares(), ...pairUnits().flat()].forEach(g =>
+    e.target.checked ? gselected.add(g.id) : gselected.delete(g.id));
+  renderSpares();
+};
+$("#gcheckall2").onchange = e => {
+  likelySpares().forEach(g => e.target.checked ? gselected.add(g.id) : gselected.delete(g.id));
   renderSpares();
 };
 
@@ -759,8 +854,26 @@ function visibleSpares() {
   const q = $("#gsearch").value.trim().toLowerCase();
   return spares.filter(g => !q || g.human_name.toLowerCase().includes(q));
 }
+const isLikelyRedeemed = g => g.license_provenance === "retail_suspect";
+const nameKey = g => g.human_name.trim().toLowerCase();
+
+// Two-key suspect games are special: only ONE of the copies can have been
+// spent, so as a pair they're giftable ("one of these is good") and get
+// promoted to the good list as a single merged line.
+function suspectGroups() {
+  const by = {};
+  visibleSpares().filter(isLikelyRedeemed).forEach(g =>
+    (by[nameKey(g)] = by[nameKey(g)] || []).push(g));
+  return by;
+}
+const goodSpares = () => visibleSpares().filter(g => !isLikelyRedeemed(g));
+const pairUnits = () => Object.values(suspectGroups()).filter(rows => rows.length > 1);
+const likelySpares = () => Object.values(suspectGroups())
+  .filter(rows => rows.length === 1).map(rows => rows[0]);
 
 function spareWhy(g) {
+  if (g.gamekey === "manual")
+    return `<span class="tag info" title="You typed this key in yourself; it never went through Humble or the redeemer.">added by you</span>`;
   const owned = { owned_appid: "you own it (AppID match)",
                   owned_name: "you own it (name match)",
                   owned_manual: "you own it (you confirmed)" }[g.match_status];
@@ -774,12 +887,35 @@ function spareWhy(g) {
   return `<span class="tag info">${owned || "owned"}</span>`;
 }
 
+function provTag(g) {
+  const lic = esc(g.steam_license || "");
+  switch (g.license_provenance) {
+    case "not_from_key":
+      return `<span class="tag good" title="Owned via: ${lic}. No product key created this ownership, so this key can't be the one that did.">not from a key</span>`;
+    case "retail_explained":
+      return `<span class="tag info" title="${lic}. A product key created this ownership, but a tracked redemption of another key for this game accounts for it.">key accounted for</span>`;
+    case "retail_suspect":
+      return `<span class="tag bad" title="${lic}. A product key created this ownership and no tracked redemption explains it. It was probably THIS key (e.g. an untracked run before the app). Verify before promising it.">Likely redeemed already</span>`;
+    case "manual":
+      return `<span class="mini" title="Manually added key — ownership tracing doesn't apply.">manual</span>`;
+    case "unknown":
+      return `<span class="mini" title="No license row matched this game's name.">no match</span>`;
+    default:
+      return `<span class="mini" title="Run 'Verify licenses' on the dashboard to trace ownership.">—</span>`;
+  }
+}
+
 function spareKeyCell(g) {
   const v = g.redeemed_key_val;
   if (v) {
     const isLink = v.startsWith("http");
-    const shown = isLink ? `<a href="${esc(v)}" target="_blank">${esc(v)}</a>`
-      : `<span class="copykey" data-copy="${esc(v)}" title="click to copy"
+    let shown;
+    if (streaming())
+      shown = `<span class="mini" style="font-family:Consolas,monospace" title="hidden by streaming mode">${isLink ? "gift link (hidden)" : KEY_MASK}</span>`;
+    else if (isLink)
+      shown = `<a href="${esc(v)}" target="_blank">${esc(v)}</a>`;
+    else
+      shown = `<span class="copykey" data-copy="${esc(v)}" title="click to copy"
            style="font-family:Consolas,monospace;cursor:pointer">${esc(v)}</span>`;
     return `${shown}
       <button class="btn" style="padding:2px 8px;font-size:11.5px" data-copy="${esc(v)}">copy</button>`;
@@ -798,15 +934,36 @@ function fmtExpiry(g) {
   return `<span class="mini">${txt}</span>`;
 }
 
-function mailtoSpare(list) {
-  const body = list.map(g =>
-    `${g.human_name}\n${g.redeemed_key_val || "(unrevealed)"}` +
-    (g.expires ? `\n(expires ${g.expires.slice(0,10)})` : "")).join("\n\n");
+function mailtoSpare(list, intro) {
+  intro = intro || "Here you go!";
   const subject = list.length === 1
     ? `Steam key: ${list[0].human_name}`
     : `${list.length} Steam keys for you`;
+  if (streaming()) {
+    // keys go into a downloaded .txt the user attaches by hand — the email
+    // draft that pops up on screen never contains a key
+    const txt = list.map(g =>
+      `${g.human_name}\n${g.redeemed_key_val || "(unrevealed)"}` +
+      (g.expires ? `\n(expires ${g.expires.slice(0,10)})` : "")).join("\n\n")
+      + "\n\nRedeem at https://store.steampowered.com/account/registerkey\n";
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(new Blob([txt], { type: "text/plain" }));
+    a.download = list.length === 1
+      ? `steam key - ${list[0].human_name.replace(/[^\w\- ]+/g, "").trim() || "game"}.txt`
+      : "steam_keys.txt";
+    a.click();
+    const names = list.map(g => "- " + g.human_name).join("\n");
+    location.href = `mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(
+      intro + "\n\n" + names + "\n\nThe key" + (list.length > 1 ? "s are" : " is")
+      + " in the attached text file.\n\nRedeem at https://store.steampowered.com/account/registerkey")}`;
+    alert("Streaming mode: the key was saved as a text file in your downloads — drag it into the email as an attachment.");
+    return;
+  }
+  const body = list.map(g =>
+    `${g.human_name}\n${g.redeemed_key_val || "(unrevealed)"}` +
+    (g.expires ? `\n(expires ${g.expires.slice(0,10)})` : "")).join("\n\n");
   const url = `mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(
-    "Here you go!\n\n" + body + "\n\nRedeem at https://store.steampowered.com/account/registerkey")}`;
+    intro + "\n\n" + body + "\n\nRedeem at https://store.steampowered.com/account/registerkey")}`;
   if (url.length > 1900 && list.length > 1) {
     alert("That's too many keys for one email link — select fewer at a time (or use Copy/Export and paste manually).");
     return;
@@ -814,25 +971,57 @@ function mailtoSpare(list) {
   location.href = url;
 }
 
-function renderSpares() {
-  const rows = visibleSpares();
-  $("#givetable tbody").innerHTML = rows.map(g => `<tr${g.given_away ? ' style="opacity:.5"' : ""}>
+function spareRow(g) {
+  return `<tr${g.given_away ? ' style="opacity:.5"' : ""}>
     <td><input type="checkbox" data-id="${g.id}" ${gselected.has(g.id) ? "checked" : ""}></td>
     <td>${esc(g.human_name)}${g.notes ? ` <span class="mini" title="${esc(g.notes)}">📝</span>` : ""}</td>
     <td>${spareKeyCell(g)}</td>
     <td>${fmtExpiry(g)}</td>
     <td>${spareWhy(g)}</td>
-    <td>${g.given_away ? "✓" : ""}</td>
-    <td><button class="btn" style="padding:2px 8px;font-size:11.5px" title="draft an email with this key"
-        onclick="emailOne(${g.id})">✉ email</button></td>
-  </tr>`).join("");
-  document.querySelectorAll("#givetable [data-copy]").forEach(n =>
+    <td>${provTag(g)}</td>
+    <td>${g.given_away ? `<span title="given ${esc(g.given_at || "(date unknown)")}">✓</span>` : ""}</td>
+    <td style="white-space:nowrap"><button class="btn" style="padding:2px 8px;font-size:11.5px" title="draft an email with this key"
+        onclick="emailOne(${g.id})">✉ email</button>${g.gamekey === "manual"
+      ? ` <button class="btn" style="padding:2px 8px;font-size:11.5px" title="remove this manually added key"
+        onclick="removeManualKey(${g.id})">✕</button>` : ""}</td>
+  </tr>`;
+}
+
+function pairRow(rows) {
+  const ids = rows.map(g => g.id);
+  const allSel = ids.every(id => gselected.has(id));
+  const allGiven = rows.every(g => g.given_away);
+  return `<tr${allGiven ? ' style="opacity:.5"' : ""}>
+    <td><input type="checkbox" data-ids="${ids.join(",")}" ${allSel ? "checked" : ""}></td>
+    <td>${esc(rows[0].human_name)} <span class="mini">(${rows.length} keys)</span></td>
+    <td>${rows.map(g => `<div style="margin:2px 0">${spareKeyCell(g)}</div>`).join("")}</td>
+    <td>${fmtExpiry(rows[0])}</td>
+    <td>${spareWhy(rows[0])}</td>
+    <td><span class="tag warn" title="Steam's license history says one unexplained product key was spent on this game, and you hold ${rows.length} keys for it. Only one can be dead, so at least ${rows.length - 1} of these should work. No way to tell which without testing.">one of these is good</span></td>
+    <td>${allGiven ? "✓" : ""}</td>
+    <td><button class="btn" style="padding:2px 8px;font-size:11.5px" title="draft an email with both keys"
+        onclick="emailIds('${ids.join(",")}')">✉ email</button></td>
+  </tr>`;
+}
+
+function renderSpares() {
+  const good = goodSpares(), pairs = pairUnits(), likely = likelySpares();
+  $("#givetable tbody").innerHTML =
+    good.map(spareRow).join("") + pairs.map(pairRow).join("");
+  $("#givetable2 tbody").innerHTML = likely.map(spareRow).join("");
+  $("#likelycard").style.display = likely.length ? "" : "none";
+  $("#givecount").textContent = `${good.length} spare keys good to go`
+    + (pairs.length ? ` + ${pairs.length} two-key games (one of each pair is good)` : "");
+  $("#givecount2").textContent = `${likely.length} keys likely redeemed already`;
+  document.querySelectorAll("#givetable [data-copy], #givetable2 [data-copy]").forEach(n =>
     n.onclick = () => copyText(n.dataset.copy, n.tagName === "BUTTON" ? n : null));
-  $("#givecount").textContent = `${rows.length} spare keys`;
   $("#gselcount").textContent = gselected.size ? `${gselected.size} selected` : "";
-  document.querySelectorAll("#givetable tbody input[type=checkbox]").forEach(cb =>
-    cb.onchange = () => { cb.checked ? gselected.add(+cb.dataset.id) : gselected.delete(+cb.dataset.id);
-      $("#gselcount").textContent = gselected.size ? `${gselected.size} selected` : ""; });
+  document.querySelectorAll("#givetable tbody input[type=checkbox], #givetable2 tbody input[type=checkbox]").forEach(cb =>
+    cb.onchange = () => {
+      (cb.dataset.ids || cb.dataset.id).split(",").map(Number).forEach(id =>
+        cb.checked ? gselected.add(id) : gselected.delete(id));
+      $("#gselcount").textContent = gselected.size ? `${gselected.size} selected` : "";
+    });
 }
 
 async function copyText(text, btn) {
@@ -840,23 +1029,25 @@ async function copyText(text, btn) {
   if (btn) { const old = btn.textContent; btn.textContent = "✓"; setTimeout(() => btn.textContent = old, 1200); }
 }
 function copyAllSpares() {
-  const lines = visibleSpares().filter(g => g.redeemed_key_val)
+  const lines = goodSpares().filter(g => g.redeemed_key_val)
     .map(g => `${g.human_name} — ${g.redeemed_key_val}`
       + (g.expires ? ` (expires ${g.expires.slice(0,10)})` : ""));
+  pairUnits().forEach(pair => pair.forEach(g => g.redeemed_key_val && lines.push(
+    `${g.human_name} — ${g.redeemed_key_val} (one of this game's two keys is probably dead — try both)`)));
   copyText(lines.join("\n"));
-  alert(`Copied ${lines.length} keys to clipboard (unrevealed spares excluded).`);
+  alert(`Copied ${lines.length} keys to clipboard (unrevealed and likely-redeemed spares excluded; two-key pairs included with a caveat).`);
 }
 function copyRedditTable() {
-  const rows = visibleSpares().filter(g => g.redeemed_key_val && !g.redeemed_key_val.startsWith("http"));
+  const rows = goodSpares().filter(g => g.redeemed_key_val && !g.redeemed_key_val.startsWith("http"));
   const md = ["Game | Key | Expires", ":-- | :-- | :--",
     ...rows.map(g => `${g.human_name.replace(/\|/g, "\\|")} | \`${g.redeemed_key_val}\` | ${g.expires ? g.expires.slice(0,10) : "never"}`)
   ].join("\n");
   copyText("First come, first served — please comment what you took!\n\n" + md);
-  alert(`Copied a Reddit-formatted table of ${rows.length} keys to clipboard. Paste it into a post on r/steam_giveaway or similar.`);
+  alert(`Copied a Reddit-formatted table of ${rows.length} keys to clipboard (likely-redeemed spares excluded). Paste it into a post on r/steam_giveaway or similar.`);
 }
 function sparesForNamesList() {
   // one line per key, sorted so duplicate titles sit next to each other
-  return [...visibleSpares()].sort((a, b) =>
+  return [...goodSpares()].sort((a, b) =>
     a.human_name.localeCompare(b.human_name, undefined, { sensitivity: "base" }));
 }
 function copyNamesList() {
@@ -882,21 +1073,44 @@ function emailOne(id) {
   const g = spares.find(s => s.id === id);
   if (g) mailtoSpare([g]);
 }
+function emailIds(idcsv) {
+  const ids = idcsv.split(",").map(Number);
+  const list = spares.filter(g => ids.includes(g.id));
+  if (list.length) mailtoSpare(list, "one of these works, try both <3");
+}
 function emailSpares() {
   const list = spares.filter(g => gselected.has(g.id));
   if (!list.length) { alert("Select some rows first."); return; }
   mailtoSpare(list);
 }
-function exportSpares() {
-  const rows = [["title","key_or_link","expires","status","given_away","note"]];
-  visibleSpares().forEach(g => rows.push([g.human_name, g.redeemed_key_val || "unrevealed",
+const SPARE_CSV_HEADER = ["title","key_or_link","expires","status","ownership","given_away","given_at","note"];
+function spareCsvRow(g, ownership) {
+  return [g.human_name, g.redeemed_key_val || "unrevealed",
     g.expires ? g.expires.slice(0,10) : "never",
-    g.redeem_status || g.match_status, g.given_away ? "yes" : "no", g.notes || ""]));
+    g.redeem_status || g.match_status, ownership ?? (g.license_provenance || ""),
+    g.given_away ? "yes" : "no", g.given_at || "", g.notes || ""];
+}
+function downloadCsv(rows, filename) {
   const csv = rows.map(r => r.map(c => `"${String(c).replace(/"/g, '""')}"`).join(",")).join("\n");
   const a = document.createElement("a");
   a.href = URL.createObjectURL(new Blob(["﻿" + csv], { type: "text/csv" }));
-  a.download = "giveaway_keys.csv";
+  a.download = filename;
   a.click();
+}
+function exportSpares() {
+  // giftable only: good-to-go spares plus two-key pairs; solitary
+  // likely-redeemed keys stay out (use Export selected to pull those)
+  const rows = [SPARE_CSV_HEADER];
+  goodSpares().forEach(g => rows.push(spareCsvRow(g)));
+  pairUnits().forEach(pair => pair.forEach(g =>
+    rows.push(spareCsvRow(g, "pair_one_of_these_is_good"))));
+  downloadCsv(rows, "giveaway_keys.csv");
+}
+function exportSelected() {
+  if (!gselected.size) { alert("Select some rows first."); return; }
+  const rows = [SPARE_CSV_HEADER];
+  spares.filter(g => gselected.has(g.id)).forEach(g => rows.push(spareCsvRow(g)));
+  downloadCsv(rows, "giveaway_selected.csv");
 }
 async function giveSelected(given) {
   if (!gselected.size) { alert("Select some rows first."); return; }
@@ -917,6 +1131,115 @@ function verifySpares() {
     return;
   startJob("verify_spares");
 }
+/* ---------------- manual keys ---------------- */
+// a key is 3-6 dash-separated groups of 4-5 alphanumerics, or any http(s) link
+const MANUAL_KEY_RX = /((?:[0-9A-Za-z]{4,5}-){2,5}[0-9A-Za-z]{4,5}|https?:\/\/\S+)\s*$/;
+
+function parseManualLine(line) {
+  const m = line.match(MANUAL_KEY_RX);
+  if (!m) return null;
+  const name = line.slice(0, m.index).replace(/[\s:|—–-]+$/, "").trim();
+  return name ? { name, key: m[1] } : null;
+}
+
+async function addManualKeys() {
+  const lines = $("#manual-keys").value.split("\n").map(l => l.trim()).filter(Boolean);
+  if (!lines.length) { $("#manual-msg").textContent = "Nothing to add."; return; }
+  const entries = [], bad = [];
+  lines.forEach(l => { const e = parseManualLine(l); e ? entries.push(e) : bad.push(l); });
+  if (bad.length) {
+    $("#manual-msg").textContent = `Couldn't parse: "${bad[0]}"`
+      + (bad.length > 1 ? ` (+${bad.length - 1} more)` : "")
+      + ` — nothing was added. Each line needs a game name and a key/link.`;
+    return;
+  }
+  const r = await fetch("/api/keys/manual", { method: "POST", headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({ entries }) });
+  const j = await r.json();
+  $("#manual-msg").textContent = `Added ${j.added}.`
+    + (j.skipped ? ` Skipped ${j.skipped} (already in the database).` : "");
+  if (j.added) { $("#manual-keys").value = ""; await loadSpares(); }
+}
+
+async function removeManualKey(id) {
+  if (!confirm("Remove this manually added key from the list?")) return;
+  const r = await fetch("/api/keys/manual/delete", { method: "POST",
+    headers: {"Content-Type": "application/json"}, body: JSON.stringify({ id }) });
+  const j = await r.json();
+  if (!j.ok) alert(j.message);
+  await loadSpares();
+}
+
+/* ---------------- steam gift inventory ---------------- */
+async function loadGifts(btn) {
+  if (btn) { btn.disabled = true; btn.textContent = "scanning…"; }
+  let j;
+  try { j = await (await fetch("/api/gifts")).json(); }
+  catch (e) { j = { ok: false, message: "Couldn't reach the app." }; }
+  if (btn) { btn.disabled = false; btn.textContent = "Scan Steam inventory"; }
+  if (!j.ok) { $("#giftlist").textContent = j.message || "Scan failed."; return; }
+  $("#giftlist").innerHTML = j.gifts.length
+    ? j.gifts.map(g => `<div style="margin:3px 0">🎁 ${esc(g.name)}
+        ${g.type ? `<span class="mini">· ${esc(g.type)}</span>` : ""}</div>`).join("")
+      + `<p class="mini" style="margin-top:6px">${j.gifts.length} gift ${j.gifts.length === 1 ? "copy" : "copies"} —
+         send them from your Steam inventory (gifts have no key to copy).</p>`
+    : "No gift copies in your Steam inventory.";
+}
+
+/* ---------------- random roller ---------------- */
+let lastRoll = [];
+
+function rollUnits() {
+  // a unit is one giveaway: a single good key, or a two-key pair for the
+  // same game where one of the two is good
+  const singles = goodSpares().filter(g => !g.given_away && g.redeemed_key_val)
+    .map(g => ({ ids: [g.id], name: g.human_name, rows: [g], pair: false }));
+  const pairs = pairUnits()
+    .filter(rows => rows.every(g => !g.given_away && g.redeemed_key_val))
+    .map(rows => ({ ids: rows.map(g => g.id), name: rows[0].human_name, rows, pair: true }));
+  return singles.concat(pairs);
+}
+
+function rollSpares() {
+  const n = Math.max(1, Math.min(50, parseInt($("#rollcount").value || "1", 10) || 1));
+  const pool = rollUnits();
+  if (!pool.length) { alert("No rollable spares: needs good-to-go keys that are revealed and not yet given away."); return; }
+  const picks = [...pool];
+  for (let i = picks.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [picks[i], picks[j]] = [picks[j], picks[i]];
+  }
+  lastRoll = picks.slice(0, n);
+  $("#roll-body").innerHTML =
+    (n > pool.length ? `<p class="mini">Only ${pool.length} rollable spares available.</p>` : "")
+    + lastRoll.map(u => `<div style="display:flex;justify-content:space-between;gap:12px;align-items:center;margin:7px 0">
+        <b>${esc(u.name)}</b>${u.pair ? ` <span class="tag warn" title="two keys, one was probably used already — hand over both">2 keys, one is good</span>` : ""}
+        <span style="white-space:nowrap">${u.rows.map(g => spareKeyCell(g)).join("<br>")}</span>
+      </div>`).join("")
+    + `<p class="mini" style="margin-top:8px">${lastRoll.length} rolled from ${pool.length} eligible giveaways.
+       Marking as given stamps the date and freezes each key's current status for your records.</p>`;
+  document.querySelectorAll("#roll-body [data-copy]").forEach(x =>
+    x.onclick = () => copyText(x.dataset.copy, x.tagName === "BUTTON" ? x : null));
+  dlg("dlg-roll").showModal();
+}
+
+function copyRollKeys(btn) {
+  if (!lastRoll.length) return;
+  copyText(lastRoll.flatMap(u => u.rows.map(g =>
+    `${g.human_name} — ${g.redeemed_key_val}` + (u.pair ? " (one of this pair is probably dead — try both)" : "")
+  )).join("\n"), btn);
+}
+
+async function rollMarkGiven() {
+  if (!lastRoll.length) return;
+  const note = prompt("Optional note (who got them):", "") || "";
+  await fetch("/api/keys/give", { method: "POST", headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({ ids: lastRoll.flatMap(u => u.ids), given: true, note }) });
+  dlg("dlg-roll").close();
+  lastRoll = [];
+  await loadSpares();
+}
+
 async function makeGiftLink(id, btn) {
   if (btn) { btn.disabled = true; btn.textContent = "creating…"; }
   const r = await fetch("/api/keys/giftlink", { method: "POST",
@@ -954,10 +1277,13 @@ async function loadAttention() {
         <td>${esc(e.human_name)}</td>
         <td><span class="mini">${esc(e.service || "")}</span></td>
         <td>${e.key
-            ? (String(e.key).startsWith("http")
-               ? `<a href="${esc(e.key)}" target="_blank">link</a>`
-               : `<span class="copykey" data-copy="${esc(e.key)}" title="click to copy"
-                    style="font-family:Consolas,monospace;cursor:pointer">${esc(e.key)}</span>`)
+            ? (streaming()
+               ? `<span class="mini" title="hidden by streaming mode">${String(e.key).startsWith("http") ? "link (hidden)" : KEY_MASK}</span>
+                  <button class="btn" style="padding:2px 8px;font-size:11.5px" data-copy="${esc(e.key)}">copy</button>`
+               : (String(e.key).startsWith("http")
+                  ? `<a href="${esc(e.key)}" target="_blank">link</a>`
+                  : `<span class="copykey" data-copy="${esc(e.key)}" title="click to copy"
+                       style="font-family:Consolas,monospace;cursor:pointer">${esc(e.key)}</span>`))
             : `<span class="mini">${e.revealed ? "" : "unrevealed"}</span>`}</td>
         <td class="mini">${esc(e.expires || "")}</td>
         <td class="mini" style="max-width:420px">${esc(e.note)}</td>
@@ -1003,8 +1329,16 @@ function revealAll() {
 }
 
 /* ---------------- settings ---------------- */
-function fillSettings() {
-  const s = state ? state.settings : {};
+async function fillSettings() {
+  // never fill from a missing state: blank fields + Save would wipe real values
+  if (!state) {
+    try { state = await (await fetch("/api/state")).json(); }
+    catch (e) { $("#settings-msg").textContent = "Can't reach the app — try again."; return; }
+  }
+  const s = state.settings || {};
+  // streaming mode: account identifiers become password fields on screen
+  $("#s-apikey").type = streaming() ? "password" : "text";
+  $("#s-steamid").type = streaming() ? "password" : "text";
   $("#s-apikey").value = s.steam_api_key || "";
   $("#s-steamid").value = s.steam_id_64 || "";
   $("#s-threshold").value = s.fuzzy_threshold || 90;
@@ -1013,21 +1347,37 @@ function fillSettings() {
   $("#s-autoreveal").checked = s.auto_reveal === "1";
   $("#s-likely").checked = s.redeem_likely_owned === "1";
   $("#s-tray").checked = (s.tray ?? "1") === "1";
+  $("#s-streaming").checked = s.streaming_mode === "1";
   renderUpdateCard();
 }
 async function saveSettings(e) {
   e.preventDefault();
-  await fetch("/api/settings", { method: "POST", headers: {"Content-Type": "application/json"},
-    body: JSON.stringify({
-      steam_api_key: $("#s-apikey").value.trim(),
-      steam_id_64: $("#s-steamid").value.trim(),
-      fuzzy_threshold: $("#s-threshold").value,
-      per_key_delay: $("#s-delay").value,
-      rate_limit_wait_min: $("#s-ratewait").value,
-      auto_reveal: $("#s-autoreveal").checked ? "1" : "0",
-      redeem_likely_owned: $("#s-likely").checked ? "1" : "0",
-      tray: $("#s-tray").checked ? "1" : "0",
-    }) });
+  let ok = false, msg = "";
+  try {
+    const r = await fetch("/api/settings", { method: "POST", headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({
+        steam_api_key: $("#s-apikey").value.trim(),
+        steam_id_64: $("#s-steamid").value.trim(),
+        fuzzy_threshold: $("#s-threshold").value,
+        per_key_delay: $("#s-delay").value,
+        rate_limit_wait_min: $("#s-ratewait").value,
+        auto_reveal: $("#s-autoreveal").checked ? "1" : "0",
+        redeem_likely_owned: $("#s-likely").checked ? "1" : "0",
+        tray: $("#s-tray").checked ? "1" : "0",
+        streaming_mode: $("#s-streaming").checked ? "1" : "0",
+      }) });
+    const j = await r.json();
+    ok = r.ok && j.ok !== false;
+    msg = j.message || "";
+  } catch (err) { msg = "couldn't reach the app"; }
+  if (!ok) {
+    $("#settings-msg").textContent = "Save FAILED" + (msg ? `: ${msg}` : "");
+    return;
+  }
+  state = await (await fetch("/api/state")).json();
+  fillSettings();  // re-read what the server actually stored (and re-mask)
+  if ($("#tab-giveaway").style.display !== "none") renderSpares();
+  if ($("#tab-library").style.display !== "none") renderTable();
   $("#settings-msg").textContent = "Saved ✓";
   setTimeout(() => $("#settings-msg").textContent = "", 2500);
 }

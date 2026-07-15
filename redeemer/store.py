@@ -30,6 +30,9 @@ DEFAULT_SETTINGS = {
     "update_silence_sha": "",
     # run in the system tray (Windows) — applied at next launch
     "tray": "1",
+    # hide key values everywhere on screen (copy/email still work) so the
+    # app can be shown on stream without giving keys away
+    "streaming_mode": "0",
 }
 
 SCHEMA = """
@@ -136,6 +139,17 @@ class Store:
             if "expires" not in cols:
                 self._conn.execute(
                     "ALTER TABLE humble_keys ADD COLUMN expires TEXT NOT NULL DEFAULT ''")
+            if "license_provenance" not in cols:
+                self._conn.execute(
+                    "ALTER TABLE humble_keys ADD COLUMN license_provenance TEXT NOT NULL DEFAULT ''")
+            if "given_at" not in cols:
+                self._conn.execute(
+                    "ALTER TABLE humble_keys ADD COLUMN given_at TEXT NOT NULL DEFAULT ''")
+            if "given_snapshot" not in cols:
+                # the row's status frozen at the moment it was given away, so
+                # a later dispute can show what we knew when we handed it out
+                self._conn.execute(
+                    "ALTER TABLE humble_keys ADD COLUMN given_snapshot TEXT NOT NULL DEFAULT ''")
             self._conn.commit()
 
     # ---------------- settings ----------------
@@ -345,6 +359,48 @@ class Store:
             where += " AND given_away=0"
         return self.get_keys(where)
 
+    def add_manual_keys(self, entries):
+        """Insert user-supplied giveaway keys that never came from Humble.
+
+        gamekey='manual' marks them (sync purges ignore that namespace),
+        match_status='owned_manual' surfaces them as spares while keeping
+        them out of the redeem pipeline, license_provenance='manual' keeps
+        the provenance pass from trying to trace them.
+        Returns (added, skipped) — skipped covers blanks and duplicate keys."""
+        ts = now()
+        added = skipped = 0
+        with self._lock:
+            for i, entry in enumerate(entries):
+                name = (entry.get("name") or "").strip()
+                val = (entry.get("key") or "").strip()
+                if not name or not val:
+                    skipped += 1
+                    continue
+                dupe = self._conn.execute(
+                    "SELECT 1 FROM humble_keys WHERE redeemed_key_val=?",
+                    (val,)).fetchone()
+                if dupe:
+                    skipped += 1
+                    continue
+                self._conn.execute(
+                    "INSERT INTO humble_keys(gamekey,machine_name,human_name,key_type,"
+                    "service,redeemed_key_val,revealed,match_status,license_provenance,"
+                    "first_seen_at,updated_at) "
+                    "VALUES('manual',?,?,'key','Steam',?,1,'owned_manual','manual',?,?)",
+                    (f"manual:{ts}:{i}", name, val, ts, ts))
+                added += 1
+            self._conn.commit()
+        return added, skipped
+
+    def delete_manual_key(self, key_id):
+        """Delete a row, but only if it was hand-entered — Humble-synced rows
+        would just come back on the next sync and shouldn't be deletable."""
+        with self._lock:
+            cur = self._conn.execute(
+                "DELETE FROM humble_keys WHERE id=? AND gamekey='manual'", (key_id,))
+            self._conn.commit()
+        return cur.rowcount
+
     # ---------------- steam licenses ----------------
 
     def replace_steam_licenses(self, licenses):
@@ -526,6 +582,9 @@ class Store:
                 "AND redeem_status='' AND match_status NOT IN ('owned_appid','owned_name','owned_manual','likely_owned')")
             spare_keys = q(
                 f"SELECT COUNT(*) FROM humble_keys WHERE {self.GIVEAWAY_WHERE} AND given_away=0")
+            spare_suspect = q(
+                f"SELECT COUNT(*) FROM humble_keys WHERE {self.GIVEAWAY_WHERE} "
+                "AND given_away=0 AND license_provenance='retail_suspect'")
             given_away = q("SELECT COUNT(*) FROM humble_keys WHERE given_away=1")
             license_verified = q(
                 "SELECT COUNT(*) FROM humble_keys WHERE redeem_status='redeemed' AND steam_license!=''")
@@ -545,6 +604,7 @@ class Store:
             "license_verified": license_verified,
             "license_count": license_count,
             "spare_keys": spare_keys,
+            "spare_suspect": spare_suspect,
             "given_away": given_away,
             "redeemed": redeemed,
             "already_owned": already_owned,

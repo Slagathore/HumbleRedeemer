@@ -126,10 +126,20 @@ class HumbleClient:
     def shutdown(self):
         with self._lock:
             if self._driver is not None:
+                # Grab the service process first: if quit() fails or hangs,
+                # a surviving chromedriver inherits the app's server socket
+                # and holds the port after we exit.
+                proc = getattr(getattr(self._driver, "service", None),
+                               "process", None)
                 try:
                     self._driver.quit()
                 except Exception:
                     pass
+                if proc is not None and proc.poll() is None:
+                    try:
+                        proc.kill()
+                    except Exception:
+                        pass
                 self._driver = None
                 self._logged_in = False
 

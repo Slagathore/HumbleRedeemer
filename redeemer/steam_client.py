@@ -18,6 +18,9 @@ STEAM_LICENSES_PAGE = "https://store.steampowered.com/account/licenses/"
 STEAM_REDEEM_API = "https://store.steampowered.com/account/ajaxregisterkey/"
 STEAM_OWNED_GAMES_API = "https://api.steampowered.com/IPlayerService/GetOwnedGames/v1/"
 STEAM_USERDATA_API = "https://store.steampowered.com/dynamicstore/userdata/"
+# app 753 (Steam) context 1 is the gifts inventory — multi-pack extras,
+# guest passes, tradable gift copies
+STEAM_GIFT_INVENTORY_API = "https://steamcommunity.com/inventory/{steamid}/753/1"
 
 COOKIE_FILE = ".steamcookies"
 
@@ -251,40 +254,111 @@ class SteamClient:
     def get_licenses(self):
         """Scrape the account licenses page. Returns a list of
         {date, name, acquisition} — acquisition 'Retail' marks licenses that
-        came from a redeemed product key (e.g. Humble)."""
+        came from a redeemed product key (e.g. Humble).
+
+        Steam paginates this page (~100 rows) with a continuationToken cursor;
+        each page embeds the link to the next, so we walk the chain until it
+        runs out."""
         with self._lock:
             session = self._session
         if session is None:
             raise RuntimeError("Not signed in to Steam.")
-        r = session.get(STEAM_LICENSES_PAGE, timeout=60)
-        r.raise_for_status()
-        html = r.text
-        rows = re.findall(
-            r'<td\s+class="license_date_col">(.*?)</td>(.*?)'
-            r'<td\s+class="license_acquisition_col">(.*?)</td>',
-            html, re.S)
-        if not rows and "login" in r.url:
-            raise RuntimeError("Steam session expired — sign in again.")
         licenses = []
         strip_tags = lambda s: re.sub(r"<[^>]+>", " ", s)
         import html as html_mod
-        for date, item, acq in rows:
-            # free licenses embed a "Remove" link inside the item cell
-            item = re.sub(r'<div class="free_license_remove_link">.*?</div>',
-                          " ", item, flags=re.S)
-            name = html_mod.unescape(strip_tags(item))
-            name = re.sub(r"\s+", " ", name).strip()
-            acq = html_mod.unescape(strip_tags(acq))
-            acq = re.sub(r"\s+", " ", acq).strip()
-            licenses.append({
-                "date": html_mod.unescape(date).strip(),
-                "name": name,
-                "acquisition": acq,
-            })
+        url = STEAM_LICENSES_PAGE
+        seen_tokens = set()
+        for _ in range(500):  # backstop against a pager loop
+            r = session.get(url, timeout=60)
+            r.raise_for_status()
+            if "login" in r.url:
+                raise RuntimeError("Steam session expired — sign in again.")
+            html = r.text
+            rows = re.findall(
+                r'<td\s+class="license_date_col">(.*?)</td>(.*?)'
+                r'<td\s+class="license_acquisition_col">(.*?)</td>',
+                html, re.S)
+            for date, item, acq in rows:
+                # free licenses embed a "Remove" link inside the item cell
+                item = re.sub(r'<div class="free_license_remove_link">.*?</div>',
+                              " ", item, flags=re.S)
+                name = html_mod.unescape(strip_tags(item))
+                name = re.sub(r"\s+", " ", name).strip()
+                acq = html_mod.unescape(strip_tags(acq))
+                acq = re.sub(r"\s+", " ", acq).strip()
+                licenses.append({
+                    "date": html_mod.unescape(date).strip(),
+                    "name": name,
+                    "acquisition": acq,
+                })
+            # Next-page cursor. Must anchor on the paginator link — the raw
+            # token also appears all over the page in language-switcher URLs
+            # pointing back at the CURRENT page. Colon may arrive as %3A,
+            # the ampersand as &amp;.
+            m = re.search(
+                r'license_paginator_next[^>]*href="\?continuationToken='
+                r'([0-9]+(?:%3[Aa]|:)[0-9]+)&(?:amp;)?offset=(\d+)"', html)
+            if not rows or not m:
+                break
+            token = re.sub(r"%3[Aa]", ":", m.group(1))
+            if token in seen_tokens:
+                break
+            seen_tokens.add(token)
+            url = (f"{STEAM_LICENSES_PAGE}?continuationToken={token}"
+                   f"&offset={m.group(2)}")
+            time.sleep(0.4)
         if not licenses:
             raise RuntimeError("Could not parse any licenses from the Steam "
                                "licenses page — Steam may have changed its layout.")
         return licenses
+
+    # ---------------- gift inventory ----------------
+
+    def _steamid_from_cookies(self, sess):
+        for c in sess.cookies:
+            if c.name == "steamLoginSecure" and "%7C" in (c.value or ""):
+                return c.value.split("%7C")[0]
+        return ""
+
+    def get_gift_inventory(self, steam_id=""):
+        """Gift copies sitting in the Steam community inventory (multi-pack
+        extras, guest passes). Public inventories need no session; private
+        ones need the signed-in cookies to happen to carry community auth."""
+        with self._lock:
+            session = self._session
+        sess = session or requests.Session()
+        sid = (steam_id or "").strip() or self._steamid_from_cookies(sess)
+        if not sid:
+            raise RuntimeError("Need your SteamID64 — set it in Settings, or sign in to Steam.")
+        gifts = []
+        start = None
+        for _ in range(10):  # 2000 items/page; gifts never get near this
+            params = {"l": "english", "count": 2000}
+            if start:
+                params["start_assetid"] = start
+            r = sess.get(STEAM_GIFT_INVENTORY_API.format(steamid=sid),
+                         params=params, timeout=30)
+            if r.status_code in (401, 403):
+                raise RuntimeError(
+                    "Steam says this inventory is private. Set inventory privacy "
+                    "to Public (Steam profile > Privacy Settings > Inventory), "
+                    "then scan again.")
+            r.raise_for_status()
+            data = r.json() or {}
+            descs = {f"{d.get('classid')}_{d.get('instanceid')}": d
+                     for d in data.get("descriptions") or []}
+            for a in data.get("assets") or []:
+                d = descs.get(f"{a.get('classid')}_{a.get('instanceid')}")
+                if d is None:
+                    continue
+                gifts.append({"name": d.get("name", "?"),
+                              "type": d.get("type", ""),
+                              "assetid": a.get("assetid", "")})
+            if data.get("more_items"):
+                start = data.get("last_assetid")
+            else:
+                break
+        return gifts
 
     # ---------------- redemption ----------------
 

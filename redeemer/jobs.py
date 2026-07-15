@@ -484,6 +484,82 @@ class JobRunner:
                         "redeemed to a different account, be DLC bundled under another "
                         "license name, or just be named differently.")
         self._say(summary)
+        self._annotate_spare_provenance(licenses)
+
+    def _annotate_spare_provenance(self, licenses):
+        """Stamp each giveaway spare with how its game entered the account.
+
+        A game owned via purchase/gift/free grant can't have consumed the
+        spare key. A Retail (product key) license that no tracked redemption
+        accounts for is the dangerous case: the "spare" itself may be the key
+        that created the ownership (e.g. an untracked pre-app run)."""
+        self._say("Tracing giveaway spares against license history...",
+                  phase="verify_licenses")
+
+        all_by_norm = {}
+        for lic in licenses:
+            all_by_norm.setdefault(matching.normalize(lic["name"]), []).append(lic)
+        loose_all = [(matching.normalize_loose(l["name"]), l) for l in licenses]
+
+        red_norm, red_loose = set(), []
+        for k in self.store.get_keys("redeem_status='redeemed'"):
+            for n in (k["human_name"], k["match_name"]):
+                if n:
+                    red_norm.add(matching.normalize(n))
+                    red_loose.append(matching.normalize_loose(n))
+
+        def is_retail(lic):
+            a = lic["acquisition"].lower()
+            return a == "retail" or "cd key" in a
+
+        def retail_explained(lic):
+            if matching.normalize(lic["name"]) in red_norm:
+                return True
+            ll = matching.normalize_loose(lic["name"])
+            return any(matching.fuzz.token_set_ratio(ll, rl) >= 93
+                       for rl in red_loose)
+
+        spares = self.store.get_giveaway_keys(include_given=True)
+        counts = {}
+        for i, key in enumerate(spares):
+            self._progress(i + 1, len(spares))
+            if key["gamekey"] == "manual":
+                continue  # hand-entered keys have no Humble/license story to trace
+            names = [key["human_name"]]
+            if key["match_name"]:
+                names.append(key["match_name"])
+            hits = []
+            for n in names:
+                hits.extend(all_by_norm.get(matching.normalize(n), []))
+            if not hits:
+                best = (0, None)
+                for n in names:
+                    ln = matching.normalize_loose(n)
+                    for lnorm, lic in loose_all:
+                        score = matching.fuzz.token_set_ratio(ln, lnorm)
+                        if score > best[0]:
+                            best = (score, lic)
+                if best[0] >= 93:
+                    hits = [best[1]]
+            if not hits:
+                prov, shown = "unknown", None
+            else:
+                retail = [l for l in hits if is_retail(l)]
+                shown = (retail or hits)[0]
+                if not retail:
+                    prov = "not_from_key"
+                elif all(retail_explained(l) for l in retail):
+                    prov = "retail_explained"
+                else:
+                    prov = "retail_suspect"
+            counts[prov] = counts.get(prov, 0) + 1
+            self.store.set_key_fields(
+                key["id"], license_provenance=prov,
+                steam_license=(f"{shown['name']} — {shown['acquisition']} "
+                               f"({shown['date']})" if shown else ""))
+        self.store.log_event("spare_provenance", detail=str(counts))
+        self._say("Spare ownership traced — "
+                  + ", ".join(f"{k}: {v}" for k, v in sorted(counts.items())))
 
     def _require_gog(self):
         if self.gog is None:
