@@ -33,6 +33,8 @@ DEFAULT_SETTINGS = {
     # hide key values everywhere on screen (copy/email still work) so the
     # app can be shown on stream without giving keys away
     "streaming_mode": "0",
+    # seconds between Steam market price requests (Steam rate-limits hard)
+    "price_fetch_delay": "3.5",
 }
 
 SCHEMA = """
@@ -103,8 +105,36 @@ CREATE TABLE IF NOT EXISTS steam_licenses (
     acquisition TEXT NOT NULL DEFAULT '',
     synced_at TEXT NOT NULL DEFAULT ''
 );
+CREATE TABLE IF NOT EXISTS steam_inventory (
+    assetid TEXT PRIMARY KEY,
+    classid TEXT NOT NULL DEFAULT '',
+    instanceid TEXT NOT NULL DEFAULT '',
+    market_hash_name TEXT NOT NULL DEFAULT '',
+    name TEXT NOT NULL DEFAULT '',
+    type TEXT NOT NULL DEFAULT '',
+    game TEXT NOT NULL DEFAULT '',
+    game_appid TEXT NOT NULL DEFAULT '',
+    marketable INTEGER NOT NULL DEFAULT 0,
+    tradable INTEGER NOT NULL DEFAULT 0,
+    commodity INTEGER NOT NULL DEFAULT 0,
+    icon TEXT NOT NULL DEFAULT '',
+    sale_state TEXT NOT NULL DEFAULT '',   -- '', 'queued', 'listed', 'pending', 'error'
+    sale_price_cents INTEGER,              -- what you want to receive
+    sale_note TEXT NOT NULL DEFAULT '',
+    listed_at TEXT NOT NULL DEFAULT '',
+    synced_at TEXT NOT NULL DEFAULT ''
+);
+CREATE TABLE IF NOT EXISTS market_prices (
+    market_hash_name TEXT PRIMARY KEY,
+    lowest_cents INTEGER,
+    median_cents INTEGER,
+    volume INTEGER NOT NULL DEFAULT 0,
+    currency INTEGER NOT NULL DEFAULT 1,
+    fetched_at TEXT NOT NULL DEFAULT ''
+);
 CREATE INDEX IF NOT EXISTS idx_events_ts ON events(ts);
 CREATE INDEX IF NOT EXISTS idx_keys_status ON humble_keys(redeem_status);
+CREATE INDEX IF NOT EXISTS idx_inv_mhn ON steam_inventory(market_hash_name);
 """
 
 LEGACY_FILES = {
@@ -400,6 +430,89 @@ class Store:
                 "DELETE FROM humble_keys WHERE id=? AND gamekey='manual'", (key_id,))
             self._conn.commit()
         return cur.rowcount
+
+    # ---------------- steam inventory (cards & collectibles) ----------------
+
+    def replace_steam_inventory(self, items):
+        """Refresh the inventory cache, preserving sale intent for assets that
+        are still present (so a re-scan doesn't wipe a queued price)."""
+        ts = now()
+        with self._lock:
+            prior = {r["assetid"]: r for r in self._conn.execute(
+                "SELECT assetid, sale_state, sale_price_cents, sale_note, listed_at "
+                "FROM steam_inventory").fetchall()}
+            self._conn.execute("DELETE FROM steam_inventory")
+            for it in items:
+                p = prior.get(it["assetid"], {})
+                self._conn.execute(
+                    "INSERT OR REPLACE INTO steam_inventory(assetid,classid,instanceid,"
+                    "market_hash_name,name,type,game,game_appid,marketable,tradable,"
+                    "commodity,icon,sale_state,sale_price_cents,sale_note,listed_at,synced_at) "
+                    "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                    (it["assetid"], it["classid"], it["instanceid"], it["market_hash_name"],
+                     it["name"], it["type"], it["game"], it["game_appid"], it["marketable"],
+                     it["tradable"], it["commodity"], it["icon"],
+                     p["sale_state"] if p else "", p["sale_price_cents"] if p else None,
+                     p["sale_note"] if p else "", p["listed_at"] if p else "", ts))
+            self._conn.commit()
+        return len(items)
+
+    def get_inventory(self, where="1=1"):
+        """Inventory rows joined with cached prices."""
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT i.*, p.lowest_cents, p.median_cents, p.volume, p.fetched_at "
+                "FROM steam_inventory i LEFT JOIN market_prices p "
+                f"ON i.market_hash_name=p.market_hash_name WHERE {where}").fetchall()
+        return [dict(r) for r in rows]
+
+    def inventory_synced_at(self):
+        with self._lock:
+            row = self._conn.execute("SELECT MAX(synced_at) t FROM steam_inventory").fetchone()
+        return row["t"] or ""
+
+    def distinct_market_names(self, marketable_only=True):
+        with self._lock:
+            q = "SELECT DISTINCT market_hash_name FROM steam_inventory WHERE market_hash_name!=''"
+            if marketable_only:
+                q += " AND marketable=1"
+            return [r["market_hash_name"] for r in self._conn.execute(q).fetchall()]
+
+    def upsert_price(self, market_hash_name, lowest, median, volume, currency=1):
+        with self._lock:
+            self._conn.execute(
+                "INSERT INTO market_prices(market_hash_name,lowest_cents,median_cents,"
+                "volume,currency,fetched_at) VALUES(?,?,?,?,?,?) "
+                "ON CONFLICT(market_hash_name) DO UPDATE SET lowest_cents=excluded.lowest_cents,"
+                "median_cents=excluded.median_cents,volume=excluded.volume,"
+                "currency=excluded.currency,fetched_at=excluded.fetched_at",
+                (market_hash_name, lowest, median, volume, currency, now()))
+            self._conn.commit()
+
+    def price_age_map(self):
+        """market_hash_name -> fetched_at, so a sweep can skip fresh prices."""
+        with self._lock:
+            return {r["market_hash_name"]: r["fetched_at"] for r in
+                    self._conn.execute("SELECT market_hash_name, fetched_at FROM market_prices")}
+
+    def set_inventory_fields(self, assetid, **fields):
+        if not fields:
+            return
+        cols = ", ".join(f"{k}=?" for k in fields)
+        with self._lock:
+            self._conn.execute(
+                f"UPDATE steam_inventory SET {cols} WHERE assetid=?",
+                (*fields.values(), assetid))
+            self._conn.commit()
+
+    def get_inventory_asset(self, assetid):
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT * FROM steam_inventory WHERE assetid=?", (assetid,)).fetchone()
+        return dict(row) if row else None
+
+    def queued_for_sale(self):
+        return self.get_inventory("i.sale_state='queued'")
 
     # ---------------- steam licenses ----------------
 

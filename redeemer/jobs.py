@@ -92,6 +92,9 @@ class JobRunner:
                 "sync_gog": self._job_sync_gog,
                 "redeem_gog": self._job_redeem_gog,
                 "verify_spares": self._job_verify_spares,
+                "scan_inventory": self._job_scan_inventory,
+                "price_inventory": self._job_price_inventory,
+                "list_market": self._job_list_market,
                 "full_auto": self._job_full_auto,
             }[job_type]
             handler(params)
@@ -730,6 +733,125 @@ class JobRunner:
                   + ("cancelled" if self._cancel.is_set() else "finished")
                   + f" — {stats['spare_confirmed']} confirmed spares, {stats['dead']} dead, "
                     f"{stats['redeemed']} unexpectedly redeemed, {stats['other']} other.")
+
+    # ---------------- steam inventory & market ----------------
+
+    def _job_scan_inventory(self, params):
+        self._require_steam()
+        settings = self.store.get_settings()
+        sid = settings.get("steam_id_64", "").strip()
+        self._say("Scanning your Steam community inventory (cards, backgrounds, "
+                  "emoticons, boosters, gems)...", phase="scan_inventory")
+        items = self.steam.get_community_inventory(sid)
+        n = self.store.replace_steam_inventory(items)
+        marketable = sum(1 for it in items if it["marketable"])
+        self.store.log_event("scan_inventory",
+                             detail=f"{n} items, {marketable} marketable")
+        self._say(f"Inventory scanned: {n} items ({marketable} marketable). "
+                  "Run 'Refresh prices' to fetch market values.")
+
+    def _job_price_inventory(self, params):
+        """Sweep market prices for every distinct marketable item. Steam
+        rate-limits priceoverview hard, so this is slow and cancellable, and
+        it skips prices fetched within the last day unless forced."""
+        settings = self.store.get_settings()
+        delay = float(settings.get("price_fetch_delay", "3.5"))
+        force = bool(params.get("force"))
+        names = self.store.distinct_market_names(marketable_only=True)
+        if not force:
+            fresh = self.store.price_age_map()
+            today = time.strftime("%Y-%m-%d")
+            names = [n for n in names
+                     if not (fresh.get(n, "").startswith(today))]
+        self._say(f"Fetching market prices for {len(names)} distinct items "
+                  f"(~{delay:.0f}s each to respect Steam's rate limit — this is "
+                  "slow; cancel any time, prices are saved as they arrive).",
+                  phase="price_inventory")
+        got = rl = 0
+        for i, name in enumerate(names):
+            if self._cancel.is_set():
+                break
+            self._progress(i + 1, len(names))
+            res = self.steam.get_market_price(name)
+            if res.get("rate_limited"):
+                rl += 1
+                self._say(f"Rate limited on '{name}' — backing off 60s "
+                          f"({got} priced so far).", phase="rate_limited")
+                for _ in range(30):
+                    if self._cancel.is_set():
+                        break
+                    time.sleep(2)
+                with self._lock:
+                    self.status["phase"] = "price_inventory"
+                continue
+            if "error" not in res:
+                self.store.upsert_price(name, res.get("lowest_cents"),
+                                        res.get("median_cents"), res.get("volume", 0))
+                got += 1
+            time.sleep(delay)
+        self.store.log_event("price_inventory", detail=f"{got} priced, {rl} rate-limits")
+        self._say(("Price sweep cancelled" if self._cancel.is_set() else "Price sweep done")
+                  + f" — {got} items priced.")
+
+    def _job_list_market(self, params):
+        """List queued inventory items for sale, then approve the pending
+        confirmations (auto if an identity_secret is saved, otherwise leave
+        them for the phone). params.ids optionally limits to specific assets."""
+        from . import steamguard
+        self._require_steam()
+        ids = params.get("ids")
+        if ids:
+            queued = [self.store.get_inventory_asset(a) for a in ids]
+            queued = [q for q in queued if q and q["sale_price_cents"]]
+        else:
+            queued = self.store.queued_for_sale()
+        if not queued:
+            self._say("No items queued for sale. Set a price on inventory items first.")
+            return
+        self._say(f"Listing {len(queued)} items on the Steam market...",
+                  phase="list_market")
+        listed = failed = 0
+        for i, it in enumerate(queued):
+            if self._cancel.is_set():
+                break
+            self._progress(i + 1, len(queued))
+            ok, msg, needs_conf = self.steam.create_market_listing(
+                it["assetid"], it["sale_price_cents"])
+            if ok:
+                listed += 1
+                self.store.set_inventory_fields(
+                    it["assetid"],
+                    sale_state="pending" if needs_conf else "listed",
+                    listed_at=now_str())
+            else:
+                failed += 1
+                self.store.set_inventory_fields(
+                    it["assetid"], sale_state="error", sale_note=msg[:200])
+                self._say(f"{it['name']}: {msg}")
+            time.sleep(1.5)
+        self.store.log_event("list_market", detail=f"{listed} listed, {failed} failed")
+
+        # confirmations
+        confirmed = 0
+        if steamguard.has_secret():
+            self._say("Approving pending market confirmations...", phase="confirm_market")
+            try:
+                session = self.steam._session
+                confirmed, total = steamguard.accept_all_market_confirmations(session)
+                for it in queued:
+                    if it["assetid"] and self.store.get_inventory_asset(
+                            it["assetid"])["sale_state"] == "pending":
+                        self.store.set_inventory_fields(it["assetid"], sale_state="listed")
+                self._say(f"Auto-confirmed {confirmed} of {total} pending confirmations.")
+            except Exception as e:
+                self._say(f"Auto-confirm failed ({e}) — approve the listings in your "
+                          "Steam mobile app instead.")
+        else:
+            self._say(f"{listed} items listed and waiting for confirmation — open the "
+                      "Steam mobile app, go to Confirmations, and approve them. "
+                      "(Add your identity_secret in Settings to auto-confirm.)")
+        self._say(f"Market listing finished — {listed} listed, {failed} failed"
+                  + (f", {confirmed} auto-confirmed" if confirmed else "") + ".")
 
     def _job_full_auto(self, params):
         self._job_claim_choices({})

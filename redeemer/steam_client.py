@@ -21,6 +21,11 @@ STEAM_USERDATA_API = "https://store.steampowered.com/dynamicstore/userdata/"
 # app 753 (Steam) context 1 is the gifts inventory — multi-pack extras,
 # guest passes, tradable gift copies
 STEAM_GIFT_INVENTORY_API = "https://steamcommunity.com/inventory/{steamid}/753/1"
+# context 6 is the Community inventory — trading cards, backgrounds,
+# emoticons, booster packs, gems: the sellable/tradable trinkets
+STEAM_COMMUNITY_INVENTORY_API = "https://steamcommunity.com/inventory/{steamid}/753/6"
+STEAM_MARKET_PRICE_API = "https://steamcommunity.com/market/priceoverview/"
+STEAM_MARKET_SELL_API = "https://steamcommunity.com/market/sellitem/"
 
 COOKIE_FILE = ".steamcookies"
 
@@ -315,9 +320,13 @@ class SteamClient:
     # ---------------- gift inventory ----------------
 
     def _steamid_from_cookies(self, sess):
+        # steamLoginSecure is "<steamid>||<token>"; the requests jar may hold
+        # it decoded (||) or URL-encoded (%7C%7C) depending on how it was saved
         for c in sess.cookies:
-            if c.name == "steamLoginSecure" and "%7C" in (c.value or ""):
-                return c.value.split("%7C")[0]
+            if c.name == "steamLoginSecure":
+                v = (c.value or "").replace("%7C", "|")
+                if "|" in v and v.split("|")[0].isdigit():
+                    return v.split("|")[0]
         return ""
 
     def get_gift_inventory(self, steam_id=""):
@@ -359,6 +368,141 @@ class SteamClient:
             else:
                 break
         return gifts
+
+    # ---------------- community inventory (cards & collectibles) ----------------
+
+    def get_community_inventory(self, steam_id=""):
+        """Trading cards, backgrounds, emoticons, booster packs, gems (app 753
+        context 6). Returns one dict per asset (selling is per-asset):
+        {assetid, classid, instanceid, market_hash_name, name, type, game,
+         game_appid, marketable, tradable, commodity, icon}."""
+        with self._lock:
+            session = self._session
+        sess = session or requests.Session()
+        sid = (steam_id or "").strip() or self._steamid_from_cookies(sess)
+        if not sid:
+            raise RuntimeError("Need your SteamID64 — set it in Settings, or sign in to Steam.")
+        items = []
+        start = None
+        for _ in range(30):  # 2000/page; large card hoards can span pages
+            params = {"l": "english", "count": 2000}
+            if start:
+                params["start_assetid"] = start
+            r = sess.get(STEAM_COMMUNITY_INVENTORY_API.format(steamid=sid),
+                         params=params, timeout=30)
+            if r.status_code in (401, 403):
+                raise RuntimeError(
+                    "Steam says this inventory is private. Set inventory privacy "
+                    "to Public (Steam profile > Privacy Settings > Inventory), "
+                    "then scan again.")
+            r.raise_for_status()
+            data = r.json() or {}
+            descs = {f"{d.get('classid')}_{d.get('instanceid')}": d
+                     for d in data.get("descriptions") or []}
+            for a in data.get("assets") or []:
+                d = descs.get(f"{a.get('classid')}_{a.get('instanceid')}")
+                if d is None:
+                    continue
+                # the owning game's appid is carried on market_fee_app (cards)
+                # or parsed from market_hash_name's leading "<appid>-"
+                game_appid = d.get("market_fee_app") or ""
+                mhn = d.get("market_hash_name", "")
+                if not game_appid and "-" in mhn and mhn.split("-", 1)[0].isdigit():
+                    game_appid = mhn.split("-", 1)[0]
+                icon = d.get("icon_url", "")
+                # tags carry the owning game under category 'Game'; other tags
+                # are rarity/class/border, so match by category rather than [0]
+                game = ""
+                for t in d.get("tags", []) or []:
+                    if t.get("category") == "Game":
+                        game = t.get("localized_tag_name", "")
+                        break
+                items.append({
+                    "assetid": a.get("assetid", ""),
+                    "classid": a.get("classid", ""),
+                    "instanceid": a.get("instanceid", ""),
+                    "market_hash_name": mhn,
+                    "name": d.get("name", "?"),
+                    "type": d.get("type", ""),
+                    "game": game,
+                    "game_appid": str(game_appid),
+                    "marketable": int(d.get("marketable", 0)),
+                    "tradable": int(d.get("tradable", 0)),
+                    "commodity": int(d.get("commodity", 0)),
+                    "icon": icon,
+                })
+            if data.get("more_items"):
+                start = data.get("last_assetid")
+            else:
+                break
+            time.sleep(0.4)
+        return items
+
+    def get_market_price(self, market_hash_name, appid=753, currency=1):
+        """priceoverview: {lowest_cents, median_cents, volume} or an error.
+        Steam rate-limits this hard — callers must space requests out."""
+        with self._lock:
+            session = self._session
+        sess = session or requests.Session()
+        r = sess.get(STEAM_MARKET_PRICE_API, params={
+            "appid": appid, "currency": currency,
+            "market_hash_name": market_hash_name}, timeout=30)
+        if r.status_code == 429:
+            return {"rate_limited": True}
+        try:
+            data = r.json()
+        except ValueError:
+            return {"error": "no price data"}
+        if not data.get("success"):
+            return {"error": "no listings"}
+
+        def cents(s):
+            # "$0.15" / "0,15€" / "$1,234.56" -> integer cents. Take the last
+            # two digit-groups as whole/fraction; a lone group is whole units.
+            if not s:
+                return None
+            groups = re.findall(r"\d+", s)
+            if not groups:
+                return None
+            if len(groups) == 1:
+                return int(groups[0]) * 100
+            whole = int("".join(groups[:-1]))
+            frac = int(groups[-1][:2].ljust(2, "0"))
+            return whole * 100 + frac
+
+        return {
+            "lowest_cents": cents(data.get("lowest_price")),
+            "median_cents": cents(data.get("median_price")),
+            "volume": int(re.sub(r"[^\d]", "", data.get("volume", "0")) or 0),
+        }
+
+    def create_market_listing(self, assetid, price_cents, amount=1,
+                              appid=753, contextid=6):
+        """List one asset for sale. price_cents is what YOU receive; Steam adds
+        its fee on top for the buyer. Returns (ok, message, needs_confirmation).
+        The listing lands pending until a mobile confirmation approves it."""
+        with self._lock:
+            session = self._session
+        if session is None:
+            return False, "Not signed in to Steam.", False
+        sid = session.cookies.get_dict().get("sessionid")
+        if not sid:
+            session.get(STEAM_KEYS_PAGE, timeout=30)
+            sid = session.cookies.get_dict().get("sessionid")
+        my_sid = self._steamid_from_cookies(session)
+        r = session.post(STEAM_MARKET_SELL_API, data={
+            "sessionid": sid, "appid": appid, "contextid": contextid,
+            "assetid": assetid, "amount": amount, "price": int(price_cents),
+        }, headers={"Referer": f"https://steamcommunity.com/profiles/"
+                    f"{my_sid}/inventory"},
+           timeout=30)
+        try:
+            data = r.json()
+        except ValueError:
+            return False, f"Steam returned non-JSON (HTTP {r.status_code}).", False
+        if data.get("success"):
+            return True, "", bool(data.get("requires_confirmation"))
+        return False, data.get("message", "Steam refused the listing."), False
 
     # ---------------- redemption ----------------
 

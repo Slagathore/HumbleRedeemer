@@ -60,6 +60,7 @@ from redeemer.jobs import JobRunner
 from redeemer import attention
 from redeemer import update_check
 from redeemer import update_install
+from redeemer import steamguard as _steamguard
 
 HOST = "127.0.0.1"
 PORT = int(os.environ.get("APP_PORT", "5757"))
@@ -230,6 +231,7 @@ _NUMERIC_SETTINGS = {
     "fuzzy_threshold": (70, 100),
     "per_key_delay": (0, 600),
     "rate_limit_wait_min": (1, 720),
+    "price_fetch_delay": (1, 30),
 }
 
 
@@ -238,7 +240,7 @@ def api_settings():
     data = request.get_json(force=True) or {}
     allowed = {"steam_api_key", "steam_id_64", "fuzzy_threshold", "per_key_delay",
                "rate_limit_wait_min", "auto_reveal", "redeem_likely_owned", "tray",
-               "streaming_mode"}
+               "streaming_mode", "price_fetch_delay"}
     updates = {}
     for k, v in data.items():
         if k not in allowed:
@@ -300,7 +302,9 @@ def api_job():
     job_type = data.get("type", "")
     if job_type not in ("sync_humble", "sync_steam", "match", "reveal",
                         "redeem", "claim_choices", "verify_licenses",
-                        "sync_gog", "redeem_gog", "verify_spares", "full_auto"):
+                        "sync_gog", "redeem_gog", "verify_spares",
+                        "scan_inventory", "price_inventory", "list_market",
+                        "full_auto"):
         return jsonify({"ok": False, "message": "Unknown job type."}), 400
     ok, msg = runner.start(job_type, data.get("params") or {})
     return jsonify({"ok": ok, "message": msg})
@@ -380,6 +384,79 @@ def api_gifts():
         return jsonify({"ok": True, "gifts": gifts})
     except Exception as e:
         return jsonify({"ok": False, "message": str(e), "gifts": []})
+
+
+@app.get("/api/inventory")
+def api_inventory():
+    """Cached community-inventory items joined with market prices."""
+    return jsonify({
+        "items": store.get_inventory(),
+        "synced_at": store.inventory_synced_at(),
+        "has_secret": _steamguard.has_secret(),
+    })
+
+
+@app.post("/api/inventory/sale")
+def api_inventory_sale():
+    """Queue/unqueue inventory assets for sale with a target price (cents you
+    receive). action: 'queue' | 'clear'. price_cents required for 'queue'."""
+    data = request.get_json(force=True) or {}
+    ids = data.get("ids") or []
+    action = data.get("action", "queue")
+    price = data.get("price_cents")
+    if action == "queue":
+        try:
+            price = int(price)
+        except (TypeError, ValueError):
+            return jsonify({"ok": False, "message": "A whole-cent price is required."}), 400
+        if price < 1:
+            return jsonify({"ok": False, "message": "Price must be at least 1 cent."}), 400
+    n = 0
+    for a in ids:
+        it = store.get_inventory_asset(a)
+        if not it:
+            continue
+        if action == "clear":
+            store.set_inventory_fields(a, sale_state="", sale_price_cents=None, sale_note="")
+        elif it["marketable"]:
+            store.set_inventory_fields(a, sale_state="queued", sale_price_cents=price)
+        n += 1
+    return jsonify({"ok": True, "count": n})
+
+
+@app.get("/api/steamguard")
+def api_steamguard_status():
+    return jsonify({"has_secret": _steamguard.has_secret()})
+
+
+@app.post("/api/steamguard")
+def api_steamguard_save():
+    data = request.get_json(force=True) or {}
+    try:
+        sid = data.get("steamid") or store.get_settings().get("steam_id_64", "")
+        _steamguard.save_secret(data.get("identity_secret", ""), sid)
+    except ValueError as e:
+        return jsonify({"ok": False, "message": str(e)}), 400
+    return jsonify({"ok": True})
+
+
+@app.post("/api/steamguard/clear")
+def api_steamguard_clear():
+    _steamguard.clear_secret()
+    return jsonify({"ok": True})
+
+
+@app.get("/api/steamguard/test")
+def api_steamguard_test():
+    """Read-only validation: fetch (not accept) pending confirmations. Proves
+    the saved secret authenticates without touching anything."""
+    if not (steam.is_logged_in() or steam.try_cookie_login()):
+        return jsonify({"ok": False, "message": "Sign in to Steam first."}), 401
+    try:
+        confs = _steamguard.fetch_confirmations(steam._session)
+        return jsonify({"ok": True, "pending": len(confs)})
+    except Exception as e:
+        return jsonify({"ok": False, "message": str(e)})
 
 
 @app.post("/api/keys/manual")

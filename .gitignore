@@ -172,3 +172,6 @@ SHA256SUMS.txt
 CLAUDE.md
 AGENTS.md
 .claude/
+
+# Steam Guard identity secret for market confirmation (local only, never commit)
+.steamguard

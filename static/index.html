@@ -169,6 +169,7 @@ dialog input {
     <button data-tab="library">Library</button>
     <button data-tab="giveaway">Giveaway</button>
     <button data-tab="attention">Attention</button>
+    <button data-tab="inventory">Inventory</button>
     <button data-tab="settings">Settings</button>
   </nav>
   <div class="chips">
@@ -390,6 +391,84 @@ dialog input {
   <div id="attention-body"><p class="mini">Loading…</p></div>
 </section>
 
+<!-- ======================= INVENTORY ======================= -->
+<section id="tab-inventory" style="display:none">
+  <div class="card" style="margin-bottom:12px">
+    <h3>Steam inventory — cards &amp; collectibles</h3>
+    <p class="section-note" style="margin-bottom:8px">
+      Trading cards, backgrounds, emoticons, booster packs, and gems. Scan pulls them from Steam,
+      Refresh prices fetches market values (slow — Steam rate-limits hard), then queue what you
+      want to sell at a price and list it. Selling needs one mobile confirmation per batch: the
+      Steam app, or auto-confirm if you've saved your identity_secret in Settings.
+      <b>Proceeds are Steam wallet funds</b> (spendable on gift-able games), and Steam takes ~13%.
+    </p>
+    <div class="actions">
+      <button class="btn primary" onclick="startJob('scan_inventory').then(()=>watchThenLoad('loadInventory'))">Scan inventory</button>
+      <button class="btn" onclick="startJob('price_inventory').then(()=>watchThenLoad('loadInventory'))">Refresh prices (slow)</button>
+      <button class="btn" onclick="startJob('price_inventory',{force:true}).then(()=>watchThenLoad('loadInventory'))" title="re-fetch even prices pulled today">Force all prices</button>
+      <a class="btn" href="https://steamcommunity.com/my/inventory/#753_6" target="_blank" style="text-decoration:none">Open on Steam</a>
+      <span class="mini" id="inv-synced"></span>
+    </div>
+  </div>
+
+  <div class="filters" style="flex-wrap:wrap;gap:8px">
+    <input type="search" id="isearch" placeholder="Search name / game…" style="min-width:180px">
+    <select id="ifilter-type"><option value="">All types</option></select>
+    <select id="ifilter-game"><option value="">All games</option></select>
+    <select id="isort">
+      <option value="value_desc">Sort: total value ↓</option>
+      <option value="value_asc">Total value ↑</option>
+      <option value="price_desc">Unit price ↓</option>
+      <option value="price_asc">Unit price ↑</option>
+      <option value="name">Name A–Z</option>
+      <option value="qty_desc">Quantity ↓</option>
+      <option value="type">Type</option>
+    </select>
+    <label class="check" style="font-size:12.5px"><input type="checkbox" id="ifilter-market" checked> marketable only</label>
+    <label class="check" style="font-size:12.5px"><input type="checkbox" id="ifilter-priced"> priced only</label>
+    <label class="check" style="font-size:12.5px">min ¢<input type="number" id="ifilter-min" min="0" style="width:56px"></label>
+  </div>
+
+  <div class="actions" style="margin:8px 0">
+    <button class="btn" onclick="invSelectAllVisible()">Select all shown</button>
+    <button class="btn" onclick="invClearSel()">Clear selection</button>
+    <select id="iprice-mode" title="price to queue at">
+      <option value="lowest">at lowest listing</option>
+      <option value="undercut1">undercut lowest by 1¢</option>
+      <option value="median">at median</option>
+      <option value="custom">custom ¢…</option>
+    </select>
+    <input type="number" id="iprice-custom" min="1" placeholder="¢ you receive" style="width:110px;display:none">
+    <button class="btn primary" onclick="queueSelected()">Queue for sale</button>
+    <button class="btn" onclick="clearSaleSelected()">Un-queue</button>
+    <span class="mini" id="isel"></span>
+  </div>
+
+  <div class="tablewrap">
+    <table id="invtable">
+      <thead><tr>
+        <th><input type="checkbox" id="icheckall"></th>
+        <th>Item</th><th>Type</th><th>Game</th><th>Qty</th>
+        <th>Lowest</th><th>Median</th><th>Vol</th><th>Total</th><th>Sale</th>
+      </tr></thead>
+      <tbody></tbody>
+    </table>
+  </div>
+  <p class="mini" id="invcount"></p>
+
+  <div class="card" id="sellqueue" style="margin-top:16px;display:none">
+    <h3>Sell queue</h3>
+    <p class="section-note" id="queue-summary" style="margin-bottom:8px"></p>
+    <div class="actions">
+      <button class="btn primary" onclick="listQueued()">List queued items for sale</button>
+      <button class="btn" onclick="loadInventory()">Refresh</button>
+      <a class="btn" id="conf-link" href="https://steamcommunity.com/mobileconf" target="_blank"
+         style="text-decoration:none">Open confirmations on phone</a>
+    </div>
+    <div id="queue-body" class="mini" style="margin-top:8px"></div>
+  </div>
+</section>
+
 <!-- ======================= SETTINGS ======================= -->
 <section id="tab-settings" style="display:none">
   <div class="card" style="max-width:640px">
@@ -404,6 +483,8 @@ dialog input {
         <input type="number" id="s-delay" min="0" step="0.5"></label>
       <label>Rate-limit wait (minutes)
         <input type="number" id="s-ratewait" min="1"></label>
+      <label>Market price fetch delay (seconds, 1–30 — lower risks Steam rate-limits)
+        <input type="number" id="s-pricedelay" min="1" max="30" step="0.5"></label>
       <label class="check"><input type="checkbox" id="s-autoreveal">
         Auto-reveal unrevealed keys when redeeming (removes gift-link option for those keys)</label>
       <label class="check"><input type="checkbox" id="s-likely">
@@ -456,6 +537,27 @@ dialog input {
       Automating your accounts may conflict with those services' terms — use at your own risk,
       no warranty. You are responsible for your own accounts and keys.
     </p>
+  </div>
+  <div class="card" style="max-width:640px; margin-top:14px">
+    <h3>Market auto-confirm (advanced)</h3>
+    <p class="section-note">
+      Selling on the Steam market needs a mobile confirmation for each listing. Without this you
+      approve them by hand in the Steam app; with your authenticator's <code>identity_secret</code>
+      saved here, the app confirms its own listings.
+      <b>You can't get this from the stock Steam app</b> — only from Steam Desktop Authenticator
+      (SDA) or an extracted maFile. It's stored locally in <code>.steamguard</code>, the same trust
+      level as your saved session; it can't be hashed because the app has to use it to sign each
+      confirmation. Leave this blank to just confirm on your phone.
+    </p>
+    <div id="sg-status" class="mini" style="margin-bottom:8px"></div>
+    <label>identity_secret (base64)
+      <input type="password" id="sg-secret" placeholder="paste from your maFile"></label>
+    <div class="actions" style="margin-top:8px">
+      <button class="btn primary" onclick="saveSecret()">Save secret</button>
+      <button class="btn" onclick="testSecret(this)">Test (read-only)</button>
+      <button class="btn" onclick="clearSecret()">Remove</button>
+      <span class="msg" id="sg-msg"></span>
+    </div>
   </div>
   <div class="card" style="max-width:640px; margin-top:14px">
     <h3>Accounts</h3>
@@ -549,11 +651,12 @@ let steamLoginPending = false;  // a Steam login is waiting on Guard approval
 /* ---------------- tabs ---------------- */
 document.querySelectorAll("nav button").forEach(b => b.onclick = () => {
   document.querySelectorAll("nav button").forEach(x => x.classList.toggle("active", x === b));
-  ["dashboard","library","giveaway","attention","settings"].forEach(t =>
+  ["dashboard","library","giveaway","attention","inventory","settings"].forEach(t =>
     $("#tab-" + t).style.display = (t === b.dataset.tab ? "" : "none"));
   if (b.dataset.tab === "library") loadGames();
   if (b.dataset.tab === "giveaway") loadSpares();
   if (b.dataset.tab === "attention") loadAttention();
+  if (b.dataset.tab === "inventory") loadInventory();
   if (b.dataset.tab === "settings") fillSettings();
 });
 
@@ -828,6 +931,230 @@ function bulk(kind) {
   if (!selected.size) { alert("Select some rows first."); return; }
   startJob(kind, { ids: [...selected] });
   selected = new Set(); renderTable();
+}
+
+/* ---------------- inventory & market ---------------- */
+let inventory = [], iselected = new Set();
+const centsToStr = c => c == null ? "—" : "$" + (c / 100).toFixed(2);
+
+// wait for the running job to finish, then call the named loader
+async function watchThenLoad(fnName) {
+  const tick = async () => {
+    try {
+      const s = await (await fetch("/api/state")).json();
+      if (s.job.running) return setTimeout(tick, 1500);
+    } catch (e) { return setTimeout(tick, 2000); }
+    window[fnName] && window[fnName]();
+  };
+  setTimeout(tick, 1200);
+}
+
+async function loadInventory() {
+  let d;
+  try { d = await (await fetch("/api/inventory")).json(); }
+  catch (e) { return; }
+  inventory = d.items || [];
+  $("#inv-synced").textContent = d.synced_at
+    ? `synced ${d.synced_at}` : "not scanned yet — hit Scan inventory";
+  // populate type & game filters from data (preserve current selection)
+  fillSelect("#ifilter-type", [...new Set(inventory.map(i => i.type).filter(Boolean))].sort());
+  fillSelect("#ifilter-game", [...new Set(inventory.map(i => i.game).filter(Boolean))].sort());
+  renderInventory();
+  renderQueue(d);
+}
+
+function fillSelect(sel, opts) {
+  const el = $(sel), cur = el.value;
+  el.innerHTML = `<option value="">${sel.includes("type") ? "All types" : "All games"}</option>`
+    + opts.map(o => `<option value="${esc(o)}">${esc(o)}</option>`).join("");
+  el.value = cur;
+}
+
+// group assets by market_hash_name into one display row with a quantity
+function invGroups() {
+  const q = $("#isearch").value.trim().toLowerCase();
+  const ft = $("#ifilter-type").value, fg = $("#ifilter-game").value;
+  const marketOnly = $("#ifilter-market").checked, pricedOnly = $("#ifilter-priced").checked;
+  const minC = parseInt($("#ifilter-min").value || "0", 10) || 0;
+  const groups = {};
+  inventory.forEach(it => {
+    if (marketOnly && !it.marketable) return;
+    if (ft && it.type !== ft) return;
+    if (fg && it.game !== fg) return;
+    if (q && !(`${it.name} ${it.game}`.toLowerCase().includes(q))) return;
+    const k = it.market_hash_name || ("_" + it.classid);
+    (groups[k] = groups[k] || { key: k, name: it.name, type: it.type, game: it.game,
+      marketable: it.marketable, lowest: it.lowest_cents, median: it.median_cents,
+      volume: it.volume, assets: [] }).assets.push(it);
+  });
+  let rows = Object.values(groups);
+  if (pricedOnly) rows = rows.filter(r => r.lowest != null || r.median != null);
+  if (minC) rows = rows.filter(r => (r.lowest ?? r.median ?? 0) >= minC);
+  const unit = r => r.lowest ?? r.median ?? 0;
+  const total = r => unit(r) * r.assets.length;
+  const sorters = {
+    value_desc: (a, b) => total(b) - total(a),
+    value_asc: (a, b) => total(a) - total(b),
+    price_desc: (a, b) => unit(b) - unit(a),
+    price_asc: (a, b) => unit(a) - unit(b),
+    name: (a, b) => a.name.localeCompare(b.name),
+    qty_desc: (a, b) => b.assets.length - a.assets.length,
+    type: (a, b) => a.type.localeCompare(b.type),
+  };
+  return rows.sort(sorters[$("#isort").value] || sorters.value_desc);
+}
+
+function saleBadge(assets) {
+  const st = {};
+  assets.forEach(a => { if (a.sale_state) st[a.sale_state] = (st[a.sale_state] || 0) + 1; });
+  const tag = { queued: "warn", listed: "good", pending: "warn", error: "bad" };
+  return Object.entries(st).map(([s, n]) =>
+    `<span class="tag ${tag[s] || ''}">${s} ${n}</span>`).join(" ") || "";
+}
+
+function renderInventory() {
+  const rows = invGroups();
+  let totalVal = 0;
+  $("#invtable tbody").innerHTML = rows.map(r => {
+    const unit = r.lowest ?? r.median;
+    const tv = (unit || 0) * r.assets.length; totalVal += tv;
+    const anySel = r.assets.some(a => iselected.has(a.assetid));
+    return `<tr>
+      <td><input type="checkbox" data-assets="${r.assets.map(a => a.assetid).join(",")}" ${anySel ? "checked" : ""}></td>
+      <td>${esc(r.name)}${r.marketable ? "" : ` <span class="mini" title="not marketable">🔒</span>`}</td>
+      <td><span class="mini">${esc(r.type)}</span></td>
+      <td><span class="mini">${esc(r.game)}</span></td>
+      <td>${r.assets.length}</td>
+      <td>${centsToStr(r.lowest)}</td>
+      <td>${centsToStr(r.median)}</td>
+      <td class="mini">${r.volume || ""}</td>
+      <td>${centsToStr(tv)}</td>
+      <td>${saleBadge(r.assets)}</td>
+    </tr>`;
+  }).join("");
+  $("#invcount").textContent = `${rows.length} distinct items · `
+    + `${rows.reduce((a, r) => a + r.assets.length, 0)} total · est. value ${centsToStr(totalVal)}`;
+  $("#isel").textContent = iselected.size ? `${iselected.size} selected` : "";
+  document.querySelectorAll("#invtable tbody input[type=checkbox]").forEach(cb =>
+    cb.onchange = () => {
+      cb.dataset.assets.split(",").forEach(id => cb.checked ? iselected.add(id) : iselected.delete(id));
+      $("#isel").textContent = iselected.size ? `${iselected.size} selected` : "";
+    });
+}
+
+["#isearch","#ifilter-type","#ifilter-game","#isort","#ifilter-market","#ifilter-priced","#ifilter-min"]
+  .forEach(s => { const el = $(s); if (el) el.oninput = el.onchange = renderInventory; });
+$("#icheckall").onchange = e => {
+  invGroups().forEach(r => r.assets.forEach(a =>
+    e.target.checked ? iselected.add(a.assetid) : iselected.delete(a.assetid)));
+  renderInventory();
+};
+$("#iprice-mode").onchange = e =>
+  $("#iprice-custom").style.display = e.target.value === "custom" ? "" : "none";
+
+function invSelectAllVisible() { $("#icheckall").checked = true; $("#icheckall").onchange({ target: { checked: true } }); }
+function invClearSel() { iselected = new Set(); $("#icheckall").checked = false; renderInventory(); }
+
+async function queueSelected() {
+  if (!iselected.size) { alert("Select some items first."); return; }
+  const mode = $("#iprice-mode").value;
+  const byId = {}; inventory.forEach(it => byId[it.assetid] = it);
+  // group selected assets by price so each gets the right cents
+  const buckets = {};
+  let noprice = 0;
+  [...iselected].forEach(id => {
+    const it = byId[id]; if (!it || !it.marketable) return;
+    let cents;
+    if (mode === "custom") cents = parseInt($("#iprice-custom").value || "0", 10);
+    else if (mode === "median") cents = it.median_cents;
+    else if (mode === "undercut1") cents = it.lowest_cents != null ? Math.max(1, it.lowest_cents - 1) : null;
+    else cents = it.lowest_cents;
+    if (!cents || cents < 1) { noprice++; return; }
+    (buckets[cents] = buckets[cents] || []).push(id);
+  });
+  const groups = Object.entries(buckets);
+  if (!groups.length) { alert("Nothing to queue — those items have no price yet (Refresh prices), or set a custom cents value."); return; }
+  for (const [cents, ids] of groups)
+    await fetch("/api/inventory/sale", { method: "POST", headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({ ids, action: "queue", price_cents: +cents }) });
+  iselected = new Set();
+  await loadInventory();
+  alert(`Queued ${groups.reduce((a, [, ids]) => a + ids.length, 0)} items.`
+    + (noprice ? ` Skipped ${noprice} with no usable price.` : ""));
+}
+
+async function clearSaleSelected() {
+  if (!iselected.size) { alert("Select some items first."); return; }
+  await fetch("/api/inventory/sale", { method: "POST", headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({ ids: [...iselected], action: "clear" }) });
+  iselected = new Set();
+  await loadInventory();
+}
+
+function renderQueue(d) {
+  const queued = inventory.filter(i => i.sale_state === "queued");
+  const pending = inventory.filter(i => i.sale_state === "pending");
+  const listed = inventory.filter(i => i.sale_state === "listed");
+  const errored = inventory.filter(i => i.sale_state === "error");
+  const show = queued.length + pending.length + listed.length + errored.length;
+  $("#sellqueue").style.display = show ? "" : "none";
+  if (!show) return;
+  const take = queued.reduce((a, i) => a + (i.sale_price_cents || 0), 0);
+  $("#queue-summary").innerHTML =
+    `${queued.length} queued (you'd receive ${centsToStr(take)} before Steam's ~13% cut) · `
+    + `${pending.length} pending confirmation · ${listed.length} listed · ${errored.length} errored.`
+    + (d && !d.has_secret && (queued.length || pending.length)
+       ? ` <b>No identity_secret saved</b> — after listing, confirm on your phone.` : "");
+  $("#queue-body").innerHTML = [...queued, ...pending, ...errored].map(i =>
+    `<div style="margin:2px 0">${esc(i.name)} — ${centsToStr(i.sale_price_cents)}
+      <span class="tag ${i.sale_state === 'error' ? 'bad' : 'warn'}">${i.sale_state}</span>
+      ${i.sale_note ? `<span class="mini">${esc(i.sale_note)}</span>` : ""}</div>`).join("");
+}
+
+async function listQueued() {
+  const queued = inventory.filter(i => i.sale_state === "queued");
+  if (!queued.length) { alert("Nothing queued."); return; }
+  const take = queued.reduce((a, i) => a + (i.sale_price_cents || 0), 0);
+  if (!confirm(`List ${queued.length} items on the Steam market for ${centsToStr(take)} total `
+    + `(before Steam's ~13% fee)?\n\nEach needs a mobile confirmation — auto if you've saved your `
+    + `identity_secret, otherwise approve them in the Steam app afterward.\n\nThis is real: listings `
+    + `go live and can sell.`)) return;
+  await startJob("list_market");
+  watchThenLoad("loadInventory");
+}
+
+/* ---------------- market auto-confirm secret ---------------- */
+async function refreshSecretStatus() {
+  try {
+    const j = await (await fetch("/api/steamguard")).json();
+    $("#sg-status").innerHTML = j.has_secret
+      ? `<span class="tag good">saved</span> the app can auto-confirm its own market listings`
+      : `<span class="tag">not set</span> listings will wait for phone confirmation`;
+  } catch (e) {}
+}
+async function saveSecret() {
+  const secret = $("#sg-secret").value.trim();
+  if (!secret) { $("#sg-msg").textContent = "Paste your identity_secret first."; return; }
+  const r = await fetch("/api/steamguard", { method: "POST", headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({ identity_secret: secret, steamid: $("#s-steamid").value.trim() }) });
+  const j = await r.json();
+  $("#sg-msg").textContent = j.ok ? "Saved ✓ — hit Test to verify." : ("Failed: " + (j.message || ""));
+  if (j.ok) { $("#sg-secret").value = ""; refreshSecretStatus(); }
+}
+async function testSecret(btn) {
+  if (btn) { btn.disabled = true; btn.textContent = "testing…"; }
+  let j; try { j = await (await fetch("/api/steamguard/test")).json(); }
+  catch (e) { j = { ok: false, message: "couldn't reach the app" }; }
+  if (btn) { btn.disabled = false; btn.textContent = "Test (read-only)"; }
+  $("#sg-msg").textContent = j.ok
+    ? `Works ✓ — Steam accepted the secret (${j.pending} pending confirmations right now).`
+    : ("Test failed: " + (j.message || ""));
+}
+async function clearSecret() {
+  if (!confirm("Remove the saved identity_secret? Listings will then need phone confirmation.")) return;
+  await fetch("/api/steamguard/clear", { method: "POST" });
+  $("#sg-msg").textContent = "Removed.";
+  refreshSecretStatus();
 }
 
 /* ---------------- giveaway ---------------- */
@@ -1344,10 +1671,12 @@ async function fillSettings() {
   $("#s-threshold").value = s.fuzzy_threshold || 90;
   $("#s-delay").value = s.per_key_delay || 1.5;
   $("#s-ratewait").value = s.rate_limit_wait_min || 30;
+  $("#s-pricedelay").value = s.price_fetch_delay || 3.5;
   $("#s-autoreveal").checked = s.auto_reveal === "1";
   $("#s-likely").checked = s.redeem_likely_owned === "1";
   $("#s-tray").checked = (s.tray ?? "1") === "1";
   $("#s-streaming").checked = s.streaming_mode === "1";
+  refreshSecretStatus();
   renderUpdateCard();
 }
 async function saveSettings(e) {
@@ -1361,6 +1690,7 @@ async function saveSettings(e) {
         fuzzy_threshold: $("#s-threshold").value,
         per_key_delay: $("#s-delay").value,
         rate_limit_wait_min: $("#s-ratewait").value,
+        price_fetch_delay: $("#s-pricedelay").value,
         auto_reveal: $("#s-autoreveal").checked ? "1" : "0",
         redeem_likely_owned: $("#s-likely").checked ? "1" : "0",
         tray: $("#s-tray").checked ? "1" : "0",
