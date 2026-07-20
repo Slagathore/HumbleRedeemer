@@ -874,11 +874,13 @@ class JobRunner:
         except Exception as e:
             # verification is a nice-to-have; don't fail the whole run on it
             self._say(f"License verification skipped: {e}")
-        if self.gog is not None and (self.gog.is_logged_in() or self.gog.try_cookie_login()):
-            try:
-                self._job_redeem_gog({})
-            except Exception as e:
-                self._say(f"GOG redemption skipped: {e}")
+        # GOG auto-redemption disabled for now; GOG keys stay listed in the
+        # Attention tab with manual redeem links.
+        # if self.gog is not None and (self.gog.is_logged_in() or self.gog.try_cookie_login()):
+        #     try:
+        #         self._job_redeem_gog({})
+        #     except Exception as e:
+        #         self._say(f"GOG redemption skipped: {e}")
 
     def _set_result(self, key, code, msg):
         label = code_to_label(code)

@@ -108,10 +108,11 @@ def _restore_sessions():
         steam.try_cookie_login()
     except Exception:
         pass
-    try:
-        gog.try_cookie_login()
-    except Exception:
-        pass
+    # GOG sign-in disabled for now
+    # try:
+    #     gog.try_cookie_login()
+    # except Exception:
+    #     pass
     try:
         humble.try_cookie_login()
     except Exception:
@@ -279,16 +280,17 @@ def api_login_steam():
     return jsonify(result)
 
 
-@app.post("/api/login/gog")
-def api_login_gog():
-    """Opens a visible browser window on this machine for GOG sign-in —
-    credentials never pass through the app."""
-    if gog.is_logged_in() or gog.try_cookie_login():
-        return jsonify({"status": "ok", "message": "Already signed in to GOG."})
-    ok, msg = gog.start_interactive_login()
-    return jsonify({"status": "waiting" if ok else "error",
-                    "message": "A browser window opened — sign in to GOG there. "
-                               "This page will update when you're done." if ok else msg})
+# GOG sign-in disabled for now
+# @app.post("/api/login/gog")
+# def api_login_gog():
+#     """Opens a visible browser window on this machine for GOG sign-in —
+#     credentials never pass through the app."""
+#     if gog.is_logged_in() or gog.try_cookie_login():
+#         return jsonify({"status": "ok", "message": "Already signed in to GOG."})
+#     ok, msg = gog.start_interactive_login()
+#     return jsonify({"status": "waiting" if ok else "error",
+#                     "message": "A browser window opened — sign in to GOG there. "
+#                                "This page will update when you're done." if ok else msg})
 
 
 @app.get("/api/attention")
@@ -302,7 +304,8 @@ def api_job():
     job_type = data.get("type", "")
     if job_type not in ("sync_humble", "sync_steam", "match", "reveal",
                         "redeem", "claim_choices", "verify_licenses",
-                        "sync_gog", "redeem_gog", "verify_spares",
+                        # "sync_gog", "redeem_gog",  # GOG automation disabled for now
+                        "verify_spares",
                         "scan_inventory", "price_inventory", "list_market",
                         "full_auto"):
         return jsonify({"ok": False, "message": "Unknown job type."}), 400

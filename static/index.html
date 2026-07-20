@@ -175,7 +175,9 @@ dialog input {
   <div class="chips">
     <span class="chip" id="chip-humble" onclick="openLogin('humble')"><span class="dot" id="dot-humble"></span>Humble</span>
     <span class="chip" id="chip-steam" onclick="openLogin('steam')"><span class="dot" id="dot-steam"></span>Steam</span>
+    <!-- GOG sign-in disabled for now; redeem links in the Attention tab still work
     <span class="chip" id="chip-gog" onclick="loginGog()" title="Opens a browser window on this PC to sign in"><span class="dot" id="dot-gog"></span>GOG</span>
+    -->
     <span class="chip" onclick="quitApp()" title="Shut the app down cleanly (closes its background browsers too)">⏻ Quit</span>
   </div>
 </header>
@@ -201,8 +203,9 @@ dialog input {
   <div class="card" style="margin-top:14px; text-align:center; font-size:15px; padding:12px 16px">
     ☕ Enjoying this? If it rescued your key library, consider
     <a href="https://ko-fi.com/sparklemuffin" target="_blank"
-       style="color:var(--accent); font-weight:650">buying me Half a cup of coffee</a>.
-    Tarriffs amirite. 🥲
+       style="color:var(--accent); font-weight:650">helping me afford more treats</a>
+    for <a href="https://github.com/Slagathore/HumbleRedeemer#puppy-and-cat-tax" target="_blank"
+       style="color:var(--accent); font-weight:650">these animals who love each otherrrr</a>. 🐶🐱
     <div style="margin-top:10px; padding:10px 12px; border:1px solid var(--accent); border-radius:8px; text-align:left; font-size:14px; line-height:1.45">
       <b>🎁 Key giveaway:</b> a $5 Ko-fi donation gets you 5 random games from
       <a href="https://docs.google.com/spreadsheets/d/e/2PACX-1vQ5FmpAzSUApFWaaIH-jOUPP6DMy0KtNCn1_PFOlyoHxBASHovsv34HCE9wlqc0HC_bQtE9lPjxrco1/pubhtml?gid=152746594&amp;single=true"
@@ -230,7 +233,7 @@ dialog input {
       <h3>Actions</h3>
       <div class="actions">
         <button class="btn primary" onclick="startJob('full_auto')"
-          title="The whole pipeline in one click: claim Choice games → sync Humble → sync Steam → match ownership → reveal & redeem every unowned Steam key → verify licenses (→ redeem GOG keys if signed in). Safe to leave running; it waits out Steam's rate limits.">▶ Full auto run</button>
+          title="The whole pipeline in one click: claim Choice games → sync Humble → sync Steam → match ownership → reveal & redeem every unowned Steam key → verify licenses. Safe to leave running; it waits out Steam's rate limits.">▶ Full auto run</button>
         <button class="btn" onclick="startJob('sync_humble')"
           title="Re-fetch your entire Humble library: new bundles, keys, Choice games, and expiration dates.">Sync Humble</button>
         <button class="btn" onclick="startJob('sync_steam')"
@@ -247,8 +250,10 @@ dialog input {
           title="Walk every Humble Choice/Monthly month you've ever had and claim every unclaimed game, then pull the new keys into the app.">Claim Choice games</button>
         <button class="btn" onclick="startJob('verify_licenses')"
           title="Read your Steam account's licenses page and confirm which redeemed keys actually landed as key activations — redeemed entries get a ✓lic badge.">Verify Steam licenses</button>
+        <!-- GOG auto-redemption disabled for now; GOG keys stay visible with redeem links in the Attention tab
         <button class="btn" onclick="startJob('redeem_gog')"
           title="Sync your GOG library, then redeem your GOG keys at gog.com/redeem, skipping ones you already own there. (GOG sometimes blocks this with a captcha — those stay pending for manual entry.)">Redeem GOG keys</button>
+        -->
         <button class="btn danger" id="btn-cancel" onclick="cancelJob()" disabled
           title="Stop the current job after the key it's working on. Progress already made is saved.">Cancel</button>
       </div>
@@ -678,21 +683,23 @@ function render() {
   $("#ver").textContent = state.version ? "· " + state.version : "";
   $("#dot-humble").classList.toggle("on", state.logins.humble);
   $("#dot-steam").classList.toggle("on", state.logins.steam);
-  $("#dot-gog").classList.toggle("on", state.logins.gog);
+  // GOG sign-in disabled for now (chip is commented out in the header)
+  // $("#dot-gog").classList.toggle("on", state.logins.gog);
   // in-app Steam Guard approval picked up by the backend poller
   if (steamLoginPending && state.logins.steam) {
     resetSteamDialog();
     if (dlg("dlg-steam").open) dlg("dlg-steam").close();
   }
-  const gl = state.logins.gog_login || {};
-  if (gl.status !== lastGogLogin) {
-    if (gl.status === "error") alert("GOG sign-in: " + gl.message);
-    if (gl.status === "ok")
-      // freshly signed in — pull the GOG library right away (quiet best-effort)
-      fetch("/api/job", { method: "POST", headers: {"Content-Type": "application/json"},
-        body: JSON.stringify({ type: "sync_gog" }) });
-    lastGogLogin = gl.status;
-  }
+  // GOG sign-in disabled for now
+  // const gl = state.logins.gog_login || {};
+  // if (gl.status !== lastGogLogin) {
+  //   if (gl.status === "error") alert("GOG sign-in: " + gl.message);
+  //   if (gl.status === "ok")
+  //     // freshly signed in — pull the GOG library right away (quiet best-effort)
+  //     fetch("/api/job", { method: "POST", headers: {"Content-Type": "application/json"},
+  //       body: JSON.stringify({ type: "sync_gog" }) });
+  //   lastGogLogin = gl.status;
+  // }
 
   renderTiles(m);
   renderPipeline(m);
@@ -1632,12 +1639,12 @@ async function resetOne(id) {
   await loadAttention();
 }
 
-/* ---------------- gog login ---------------- */
-async function loginGog() {
-  const r = await fetch("/api/login/gog", { method: "POST" });
-  const j = await r.json();
-  alert(j.message);
-}
+/* ---------------- gog login (disabled for now) ---------------- */
+// async function loginGog() {
+//   const r = await fetch("/api/login/gog", { method: "POST" });
+//   const j = await r.json();
+//   alert(j.message);
+// }
 
 /* ---------------- jobs ---------------- */
 async function startJob(type, params) {

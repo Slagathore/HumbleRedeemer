@@ -5,7 +5,7 @@
 [![Latest release](https://img.shields.io/github/v/release/Slagathore/HumbleRedeemer)](../../releases/latest)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 ![Platforms](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-blue)
-[![Ko-fi](https://img.shields.io/badge/Ko--fi-half%20a%20coffee%20%E2%98%95-ff5f5f)](https://ko-fi.com/sparklemuffin)
+[![Ko-fi](https://img.shields.io/badge/Ko--fi-treats%20for%20the%20animals%20%F0%9F%90%B6-ff5f5f)](https://ko-fi.com/sparklemuffin)
 
 ![Demo](docs/demo.gif)
 
@@ -17,7 +17,7 @@
 
 On Windows the app lives in the **system tray** (blue key icon by the clock): closing the browser tab just "minimizes" it. The app keeps running in the background, and reopening `http://127.0.0.1:5757` (or double-clicking the tray icon) brings it right back. Quit from the tray icon's menu or the ⏻ chip in the dashboard. Prefer a plain console window instead? Untick *Run in the system tray* in Settings.
 
-The Humble/GOG automation runs in a separate hidden browser using Chrome or Firefox; if neither is installed, Selenium usually downloads a private copy of Chrome automatically. Windows builds are signed (publisher: Charles Chambers). macOS builds are unsigned, so right-click and Open the first time.
+The Humble automation runs in a separate hidden browser using Chrome or Firefox; if neither is installed, Selenium usually downloads a private copy of Chrome automatically. Windows builds are signed (publisher: Charles Chambers). macOS builds are unsigned, so right-click and Open the first time.
 
 ## What it does
 
@@ -26,10 +26,11 @@ The Humble/GOG automation runs in a separate hidden browser using Chrome or Fire
 - **Three tier ownership matching.** Steam AppID, then normalized names (™/®/case/punctuation), then a conservative fuzzy pass whose "likely owned" hits you confirm with one click.
 - **Humble Choice auto-claim.** Walks every Choice/Monthly month you've ever had and claims everything unclaimed.
 - **Expiration tracking.** Keys with Humble deadlines get flagged before they die.
-- **Steam license verification.** Confirms your redeemed keys actually landed on your account.
-- **Giveaway page.** Finds your *duplicates* (keys for games you already own that were never consumed): click to copy, email drafts, a Reddit post generator, a names only list for DM giveaways, Humble gift link creation, and tracking for what you've given away.
+- **Steam license verification.** Confirms your redeemed keys actually landed on your account, and stamps each spare with where the game's ownership actually came from.
+- **Giveaway page.** Finds your *duplicates* (keys for games you already own that were never consumed) and tells you which spares are genuinely safe to give away: license provenance traces whether the "spare" key is probably the very key that bought you the game. Click to copy, email drafts, a Reddit post generator, a names only list for DM giveaways, Humble gift link creation, and tracking for what you've given away.
+- **Steam inventory page.** Scans your trading cards, backgrounds, emoticons, boosters and gems, pulls market prices, and lets you queue and list sales (one mobile confirmation per batch, or auto-confirm with your `identity_secret`). Proceeds are Steam wallet funds and Steam takes about 13%.
 - **Attention page.** Everything that can't auto-redeem: other-store keys with links for where to redeem them, dead keys with the Steam error decoded, expired keys, and the weird non-game stuff.
-- **GOG support.** Library sync, ownership skip, and browser-driven redemption.
+- **GOG keys.** Tracked, matched, and listed with redeem links in the Attention page. The GOG sign-in and automatic redemption are switched off in this build while I rework them; redeem GOG keys by hand at [gog.com/redeem](https://www.gog.com/redeem) for now.
 - **Library browser.** Search and filter all your keys by state, with bulk reveal/redeem/reset.
 - **Runs in the system tray** (Windows). Close the tab and it keeps working; update banners tell you when a newer version is on GitHub.
 
@@ -55,19 +56,15 @@ The Humble/GOG automation runs in a separate hidden browser using Chrome or Fire
 
 ## Updates
 
-The app checks this GitHub repo once at launch (a read-only fetch of public repo info, nothing about you is sent) and shows a banner when newer code has been pushed. You can silence it per-update ("remind me when the *next* one lands") or forever, from the banner or Settings → Updates.
+The app checks this GitHub repo once at launch (a read-only fetch of public repo info, nothing about you is sent) and shows a banner when a newer release is out. You can silence it per-update ("remind me when the *next* one lands") or forever, from the banner or Settings → Updates. Set `APP_NO_UPDATE_CHECK=1` to disable all update checking.
 
-**Emergency releases** override silencing: if [`update_notice.json`](update_notice.json) in this repo has `emergency: true`, every running app that's behind shows a red banner with that notice's title/message explaining why the update can't wait (security fixes, breakage that could waste keys). It disappears as soon as you're up to date. Set `APP_NO_UPDATE_CHECK=1` to disable all update checking.
+The installed Windows build can update itself. Hit **Update now** on the banner: it downloads that release's installer, checks it against the release's published SHA256 and against the Authenticode signature Windows sees on it (publisher: Charles Chambers), and only then offers to run it. A download that fails either check is deleted, not run, and the banner tells you why. The app closes while the installer works and reopens on its own afterwards. Your keys, history and sign-ins are not in the program folder, so they survive the whole thing. Running from source, or the portable exe? There is nothing to install for you, so the app says so and points you at `git pull` or the releases page instead of pretending.
+
+**Emergency releases** override silencing: if [`update_notice.json`](update_notice.json) in this repo has `emergency: true`, every running app that's behind shows a red banner with that notice's title/message explaining why the update can't wait (security fixes, breakage that could waste keys). It disappears as soon as you're up to date.
 
 ## Privacy
 
-**Everything runs locally.** No server, no accounts, no telemetry, no data collection. Your logins are stored as session cookies in local files (`.humblecookies`, `.steamcookies`, `.gogcookies`), and your keys/history live in a local SQLite database (`redeemer.db`). If you ran the installer, those files live in `%LOCALAPPDATA%\HumbleRedeemer`, which is deliberately outside the program folder so updating the app can never touch them. If you run the portable exe or from source, they sit next to the app as before, and the app moves them for you if you later switch to the installer. Set `HUMBLEREDEEMER_DATA` to put them anywhere you like. The only network connections it ever makes are to Humble Bundle, Steam, and GOG, acting as you, on your machine, for you, plus a read-only GitHub version check at launch (disable with `APP_NO_UPDATE_CHECK=1`). Delete the cookie files to sign out; delete `redeemer.db` to wipe all history.
-
-## Updates
-
-The installed Windows build can update itself. When the banner says a new release is out, hit **Update now**: it downloads that release's installer, checks it against the release's published SHA256 and against the Authenticode signature Windows sees on it (publisher: Charles Chambers), and only then offers to run it. A download that fails either check is deleted, not run, and the banner tells you why. The app closes while the installer works and reopens on its own afterwards. Your keys, history and sign-ins are not in the program folder, so they survive the whole thing.
-
-Running from source, or the portable exe? There is nothing to install for you, so the app says so and points you at `git pull` or the releases page instead of pretending.
+**Everything runs locally.** No server, no accounts, no telemetry, no data collection. Your logins are stored as session cookies in local files (`.humblecookies`, `.steamcookies`), and your keys/history live in a local SQLite database (`redeemer.db`). If you ran the installer, those files live in `%LOCALAPPDATA%\HumbleRedeemer`, which is deliberately outside the program folder so updating the app can never touch them. If you run the portable exe or from source, they sit next to the app as before, and the app moves them for you if you later switch to the installer. Set `HUMBLEREDEEMER_DATA` to put them anywhere you like. The only network connections it ever makes are to Humble Bundle and Steam, acting as you, on your machine, for you, plus a read-only GitHub version check at launch (disable with `APP_NO_UPDATE_CHECK=1`). Delete the cookie files to sign out; delete `redeemer.db` to wipe all history.
 
 ## Disclaimer
 
@@ -86,4 +83,21 @@ On Windows, `run_app.bat` launches it windowless in the system tray (output goes
 
 ## Support
 
-If this tool rescued your key library, consider [buying me half a cup of coffee](https://ko-fi.com/sparklemuffin). Tarriffs amirite.
+Enjoying this? If it rescued your key library, consider [helping me afford more treats](https://ko-fi.com/sparklemuffin) for these animals who love each otherrrr (see below). A $5 Ko-fi donation also gets you 5 random games from [my list of excess keys](https://docs.google.com/spreadsheets/d/e/2PACX-1vQ5FmpAzSUApFWaaIH-jOUPP6DMy0KtNCn1_PFOlyoHxBASHovsv34HCE9wlqc0HC_bQtE9lPjxrco1/pubhtml?gid=152746594&single=true); $10 or more and you pick your 5. Leave your picks in the Ko-fi comment and I'll message you the keys.
+
+## Puppy and cat tax
+
+The animals in question. They love each otherrrr.
+
+<p>
+<img src="docs/animals/245.JPG" alt="A golden dog resting its head on a tabby cat, both squished into the same cushion" width="49%"> <img src="docs/animals/081.JPG" alt="A tabby cat on a leash with a golden dog holding the other end like it is walking the cat" width="49%">
+</p>
+<p>
+<img src="docs/animals/139.JPG" alt="A big black dog and a small white puppy wrestling on the couch" width="49%"> <img src="docs/animals/009.JPG" alt="Two dogs asleep on the bed with their paws wrapped around each other" width="49%">
+</p>
+<p>
+<img src="docs/animals/092.JPG" alt="A black cat and a white kitten curled together on a bath mat" width="49%"> <img src="docs/animals/IMG_8231.JPG" alt="A black cat and a fluffy gray cat lounging together in the sun" width="49%">
+</p>
+<p>
+<img src="docs/animals/524.JPG" alt="Three tabby cats piled together in one bed" width="49%">
+</p>

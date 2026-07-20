@@ -7,7 +7,7 @@
 ;
 ; Usage:
 ;   "C:\Users\Cole\AppData\Local\Programs\Inno Setup 6\ISCC.exe" packaging\installer.iss ^
-;       /DAppVersion=1.1.2 /DSourceExe=..\dist\HumbleRedeemer.exe
+;       /DAppVersion=1.2.0 /DSourceExe=..\dist\HumbleRedeemer.exe
 ;
 ; SourceExe defaults to ..\dist\HumbleRedeemer.exe (relative to this script)
 ; if not passed explicitly. Output lands in dist\HumbleRedeemer-<version>-Setup.exe.
